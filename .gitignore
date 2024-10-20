@@ -1,0 +1,21 @@
+#Entorno virtual
+env/
+
+#Archivos compilados de Python
+*.pyc
+__pycache__/
+
+#Configuración de entorno
+.env
+
+# Configuración del IDE
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+#Claves AWS
+Claves-EC2-Municipalidad.pem
+
+#Archivos adicionales
+CredencialesSuperUsuario.txt
+.vercel

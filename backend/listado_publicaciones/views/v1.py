@@ -34,6 +34,7 @@ import pandas as pd
 from ..pagination import DynamicPageNumberPagination
 from ..filters import PublicacionFilter
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
+from datetime import datetime
 
 
 # Create your views here.
@@ -58,29 +59,73 @@ class PublicacionViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAdmin])
 def export_to_excel(request):
-    # Usa Django Filters para obtener los filtros
+    # Aplicar filtros de Django Filters a las publicaciones
     publicaciones = PublicacionFilter(
         request.GET, queryset=Publicacion.objects.all()
     ).qs
 
-    # Crear un DataFrame con los datos filtrados
-    data = list(
-        publicaciones.values()
-    )  # Puedes especificar los campos que deseas incluir
-    df = pd.DataFrame(data)
+    # Crear un DataFrame para las publicaciones
+    data = list(publicaciones.values())
+    df_publicaciones = pd.DataFrame(data)
 
-    if "fecha_publicacion" in df.columns:
-        df["fecha_publicacion"] = pd.to_datetime(df["fecha_publicacion"])
-        df["fecha_publicacion"] = df["fecha_publicacion"].dt.strftime("%d-%m-%Y %H:%M")
+    if "fecha_publicacion" in df_publicaciones.columns:
+        df_publicaciones["fecha_publicacion"] = pd.to_datetime(
+            df_publicaciones["fecha_publicacion"]
+        ).dt.tz_localize(None)
 
-    # Generar el archivo Excel
+    # Obtener datos relacionados y crear DataFrames para cada relación
+    categorias = Categoria.objects.all()
+    departamentos = DepartamentoMunicipal.objects.all()
+    juntas_vecinales = JuntaVecinal.objects.all()
+    situaciones = SituacionPublicacion.objects.all()
+
+    usuarios = Usuario.objects.all().values(
+        "id",
+        "nombre",
+        "email",
+        "numero_telefonico_movil",
+        "fecha_registro",
+        "esta_activo",
+    )
+    df_usuarios = pd.DataFrame(list(usuarios))
+
+    if "fecha_registro" in df_usuarios.columns:
+        df_usuarios["fecha_registro"] = pd.to_datetime(
+            df_usuarios["fecha_registro"]
+        ).dt.tz_localize(None)
+
+    evidencias = Evidencia.objects.all()
+    df_evidencias = pd.DataFrame(evidencias.values())
+
+    if "fecha" in df_evidencias.columns:
+        df_evidencias["fecha"] = pd.to_datetime(df_evidencias["fecha"]).dt.tz_localize(
+            None
+        )
+
+    df_categorias = pd.DataFrame(list(categorias.values()))
+    df_juntas_vecinales = pd.DataFrame(list(juntas_vecinales.values()))
+    df_situaciones = pd.DataFrame(list(situaciones.values()))
+    df_departamentos = pd.DataFrame(list(departamentos.values()))
+    # Generar la respuesta HTTP para la descarga
     response = HttpResponse(
         content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-    response["Content-Disposition"] = 'attachment; filename="publicaciones.xlsx"'
+    response["Content-Disposition"] = (
+        f'attachment; filename="publicaciones_{datetime.now().strftime("%d-%m-%Y_%H:%M")}.xlsx"'
+    )
 
-    # Guardar el DataFrame como un archivo Excel
-    df.to_excel(response, index=False)
+    # Escribir los DataFrames en múltiples hojas de Excel
+    with pd.ExcelWriter(response, engine="openpyxl") as writer:
+        # Hoja principal: Publicaciones
+        df_publicaciones.to_excel(writer, sheet_name="Publicaciones", index=False)
+
+        # Hojas adicionales con relaciones
+        df_usuarios.to_excel(writer, sheet_name="Usuarios", index=False)
+        df_categorias.to_excel(writer, sheet_name="Categorías", index=False)
+        df_departamentos.to_excel(writer, sheet_name="Departamentos", index=False)
+        df_juntas_vecinales.to_excel(writer, sheet_name="Juntas Vecinales", index=False)
+        df_situaciones.to_excel(writer, sheet_name="Situaciones", index=False)
+        df_evidencias.to_excel(writer, sheet_name="Evidencias", index=False)
 
     return response
 

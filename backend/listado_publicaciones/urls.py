@@ -12,7 +12,12 @@ from .views.v1 import (
     RespuestasMunicipalesViewSet,
     SituacionesPublicacionesViewSet,
 )
-from .views.v1 import export_to_excel
+from .views.v1 import (
+    export_to_excel,
+    PublicacionesPorMesyCategoria,
+    PublicacionesPorCategoria,
+    ResumenEstadisticas,
+)
 from rest_framework_simplejwt.views import TokenRefreshView
 
 router = DefaultRouter()
@@ -44,5 +49,10 @@ urlpatterns = [
     path("v1/token/", CustomTokenObtainPairView.as_view(), name="token_refresh"),
     path("v1/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("v1/registro/", RegistroUsuarioView.as_view(), name="registro"),
+    path(
+        "v1/publicaciones-por-mes-y-categoria/", PublicacionesPorMesyCategoria.as_view()
+    ),
+    path("v1/publicaciones-por-categoria/", PublicacionesPorCategoria.as_view()),
+    path("v1/resumen-estadisticas/", ResumenEstadisticas.as_view()),
     path("v1/export-to-excel/", export_to_excel),
 ]

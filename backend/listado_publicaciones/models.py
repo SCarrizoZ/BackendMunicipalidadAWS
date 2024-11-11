@@ -100,7 +100,7 @@ class Publicacion(models.Model):
     )
     departamento = models.ForeignKey(DepartamentoMunicipal, on_delete=models.RESTRICT)
     descripcion = models.TextField()
-    fecha_publicacion = models.DateTimeField()
+    fecha_publicacion = models.DateTimeField(default=timezone.now)
     titulo = models.CharField(max_length=100)
     latitud = models.DecimalField(max_digits=9, decimal_places=6)
     longitud = models.DecimalField(max_digits=9, decimal_places=6)
@@ -112,7 +112,7 @@ class Publicacion(models.Model):
 class Evidencia(models.Model):
     publicacion = models.ForeignKey(Publicacion, on_delete=models.RESTRICT)
     archivo = CloudinaryField("archivo")
-    fecha = models.DateTimeField()
+    fecha = models.DateTimeField(default=timezone.now)
     extension = models.CharField(max_length=30)
 
     def __str__(self):
@@ -123,7 +123,7 @@ class AnuncioMunicipal(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.RESTRICT)
     titulo = models.CharField(max_length=100)
     descripcion = models.TextField()
-    fecha = models.DateTimeField()
+    fecha = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
         return self.titulo
@@ -132,7 +132,7 @@ class AnuncioMunicipal(models.Model):
 class RespuestaMunicipal(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.RESTRICT)
     publicacion = models.ForeignKey(Publicacion, on_delete=models.RESTRICT)
-    fecha = models.DateTimeField()
+    fecha = models.DateTimeField(default=timezone.now)
     descripcion = models.TextField()
     acciones = models.CharField(max_length=400)
     situacion_inicial = models.CharField(max_length=100)

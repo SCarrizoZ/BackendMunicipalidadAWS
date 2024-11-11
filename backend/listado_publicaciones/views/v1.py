@@ -35,6 +35,8 @@ from ..pagination import DynamicPageNumberPagination
 from ..filters import PublicacionFilter
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
 from datetime import datetime
+from django.db.models import Count
+from django.db.models.functions import TruncMonth
 
 
 # Create your views here.
@@ -128,6 +130,66 @@ def export_to_excel(request):
         df_evidencias.to_excel(writer, sheet_name="Evidencias", index=False)
 
     return response
+
+
+class ResumenEstadisticas(APIView):
+    def get(self, request, *args, **kwargs):
+        total_publicaciones = Publicacion.objects.count()
+        total_usuarios = Usuario.objects.count()
+
+        # Suponiendo que hay una situación llamada "Resuelto"
+        problemas_resueltos = Publicacion.objects.filter(
+            situacion__nombre="Resuelto"
+        ).count()
+
+        respuesta = {
+            "publicaciones": total_publicaciones,
+            "usuarios": total_usuarios,
+            "problemas_resueltos": problemas_resueltos,
+        }
+
+        return Response(respuesta)
+
+
+class PublicacionesPorMesyCategoria(APIView):
+    def get(self, request, *args, **kwargs):
+        datos = (
+            Publicacion.objects.annotate(mes=TruncMonth("fecha_publicacion"))
+            .values("mes", "categoria__nombre")
+            .annotate(total=Count("id"))
+            .order_by("mes")
+        )
+
+        # Dar formato a los datos
+        meses_dict = {}
+        for dato in datos:
+            mes_nombre = dato["mes"].strftime("%b")  # Ene, Feb, Mar, etc.
+            if mes_nombre not in meses_dict:
+                meses_dict[mes_nombre] = {"name": mes_nombre}
+
+            meses_dict[mes_nombre][dato["categoria__nombre"]] = dato["total"]
+
+        # Convertir a lista
+        respuesta = list(meses_dict.values())
+        return Response(respuesta)
+
+
+class PublicacionesPorCategoria(APIView):
+    def get(self, request, *args, **kwargs):
+        # Agrupar por categoría y contar publicaciones
+        datos = (
+            Publicacion.objects.values("categoria__nombre")
+            .annotate(total=Count("id"))
+            .order_by("-total")
+        )  # Ordenar por total en orden descendente
+
+        # Dar formato a los datos
+        respuesta = [
+            {"name": dato["categoria__nombre"], "value": dato["total"]}
+            for dato in datos
+        ]
+
+        return Response(respuesta)
 
 
 class UsuariosViewSet(viewsets.ModelViewSet):

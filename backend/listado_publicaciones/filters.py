@@ -1,5 +1,5 @@
 import django_filters
-from .models import Publicacion
+from .models import Publicacion, AnuncioMunicipal
 from django.db.models import Q
 
 
@@ -76,4 +76,46 @@ class PublicacionFilter(django_filters.FilterSet):
             "categoria",
             "situacion",
             "fecha_publicacion",
+        ]
+
+
+class AnuncioMunicipalFilter(django_filters.FilterSet):
+    categoria = django_filters.CharFilter(
+        method="filter_categoria",
+        label="Categoria",
+    )
+    fecha = django_filters.DateFromToRangeFilter()  # Filtro de rango de fechas
+    estado = django_filters.CharFilter(
+        method="filter_estado",
+        label="Estado",
+    )
+
+    def filter_categoria(self, queryset, name, value):
+        if value:
+            # Dividimos los valores en caso de que lleguen como una cadena
+            categoria_list = value.split(",")
+            # Creamos una Q para filtrar usando OR
+            query = Q()
+            for categoria in categoria_list:
+                query |= Q(categoria__nombre__icontains=categoria)
+            return queryset.filter(query)
+        return queryset
+
+    def filter_estado(self, queryset, name, value):
+        if value:
+            # Dividimos los valores en caso de que lleguen como una cadena
+            estado_list = value.split(",")
+            # Creamos una Q para filtrar usando OR
+            query = Q()
+            for estado in estado_list:
+                query |= Q(estado__icontains=estado)
+            return queryset.filter(query)
+        return queryset
+
+    class Meta:
+        model = AnuncioMunicipal
+        fields = [
+            "categoria",
+            "fecha",
+            "estado",
         ]

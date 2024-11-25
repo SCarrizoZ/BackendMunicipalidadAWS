@@ -8,6 +8,8 @@ from ..models import (
     Publicacion,
     RespuestaMunicipal,
     SituacionPublicacion,
+    AnuncioMunicipal,
+    ImagenAnuncio,
 )
 import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -168,6 +170,53 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
             "titulo",
             "latitud",
             "longitud",
+        ]
+
+
+# Serializer para Imagen Anuncio
+class ImagenAnuncioSerializer(serializers.ModelSerializer):
+    anuncio_id = serializers.PrimaryKeyRelatedField(
+        queryset=AnuncioMunicipal.objects.all()
+    )
+
+    class Meta:
+        model = ImagenAnuncio
+        fields = [
+            "id",
+            "anuncio",
+            "imagen",
+            "fecha",
+            "extension",
+            "anuncio_id",
+        ]
+
+    def create(self, validated_data):
+        archivo = validated_data.pop("imagen")
+        upload_data = cloudinary.uploader.upload(archivo)
+        validated_data["imagen"] = upload_data["url"]
+        return ImagenAnuncio.objects.create(**validated_data)
+
+
+# Serializer para Anuncio Municipal
+class AnuncioMunicipalSerializer(serializers.ModelSerializer):
+    usuario = UsuarioListSerializer()
+    categoria = CategoriaSerializer()
+    imagenes = ImagenAnuncioSerializer(
+        many=True, read_only=True, source="imagenanuncio_set"
+    )
+
+    class Meta:
+        model = AnuncioMunicipal
+        fields = [
+            "id",
+            "usuario",
+            "titulo",
+            "subtitulo",
+            "estado",
+            "descripcion",
+            "categoria",
+            "fecha",
+            "imagenes",
         ]
 
 

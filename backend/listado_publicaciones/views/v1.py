@@ -7,6 +7,8 @@ from ..models import (
     JuntaVecinal,
     RespuestaMunicipal,
     SituacionPublicacion,
+    AnuncioMunicipal,
+    ImagenAnuncio,
 )
 from ..serializers.v1 import (
     PublicacionListSerializer,
@@ -20,6 +22,8 @@ from ..serializers.v1 import (
     JuntaVecinalSerializer,
     RespuestaMunicipalSerializer,
     SituacionPublicacionSerializer,
+    AnuncioMunicipalSerializer,
+    ImagenAnuncioSerializer,
 )
 from rest_framework import viewsets, status
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -32,7 +36,7 @@ from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 import pandas as pd
 from ..pagination import DynamicPageNumberPagination
-from ..filters import PublicacionFilter
+from ..filters import PublicacionFilter, AnuncioMunicipalFilter
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
 from datetime import datetime
 from django.db.models import Count
@@ -56,6 +60,22 @@ class PublicacionViewSet(viewsets.ModelViewSet):
         if self.action in ["list", "retrieve"]:
             return PublicacionListSerializer
         return PublicacionCreateUpdateSerializer
+
+
+class AnunciosMunicipalesViewSet(viewsets.ModelViewSet):
+    queryset = AnuncioMunicipal.objects.all().order_by("-fecha")
+    serializer_class = AnuncioMunicipalSerializer
+    pagination_class = DynamicPageNumberPagination
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_class = AnuncioMunicipalFilter
+    ordering_fields = ["fecha"]
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            permission_classes = [IsAuthenticatedOrAdmin]
+        else:
+            permission_classes = [IsAdmin]
+        return [permission() for permission in permission_classes]
 
 
 @api_view(["GET"])
@@ -96,14 +116,6 @@ def export_to_excel(request):
             df_usuarios["fecha_registro"]
         ).dt.tz_localize(None)
 
-    evidencias = Evidencia.objects.all()
-    df_evidencias = pd.DataFrame(evidencias.values())
-
-    if "fecha" in df_evidencias.columns:
-        df_evidencias["fecha"] = pd.to_datetime(df_evidencias["fecha"]).dt.tz_localize(
-            None
-        )
-
     df_categorias = pd.DataFrame(list(categorias.values()))
     df_juntas_vecinales = pd.DataFrame(list(juntas_vecinales.values()))
     df_situaciones = pd.DataFrame(list(situaciones.values()))
@@ -127,18 +139,26 @@ def export_to_excel(request):
         df_departamentos.to_excel(writer, sheet_name="Departamentos", index=False)
         df_juntas_vecinales.to_excel(writer, sheet_name="Juntas Vecinales", index=False)
         df_situaciones.to_excel(writer, sheet_name="Situaciones", index=False)
-        df_evidencias.to_excel(writer, sheet_name="Evidencias", index=False)
 
     return response
 
 
 class ResumenEstadisticas(APIView):
     def get(self, request, *args, **kwargs):
-        total_publicaciones = Publicacion.objects.count()
-        total_usuarios = Usuario.objects.count()
+        # Filtrar las publicaciones usando PublicacionFilter
+        filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+        if not filterset.is_valid():
+            return Response(filterset.errors, status=400)
+
+        publicaciones_filtradas = filterset.qs
+
+        total_publicaciones = publicaciones_filtradas.count()
+        total_usuarios = Usuario.objects.filter(
+            id__in=publicaciones_filtradas.values("usuario_id")
+        ).count()
 
         # Suponiendo que hay una situación llamada "Resuelto"
-        problemas_resueltos = Publicacion.objects.filter(
+        problemas_resueltos = publicaciones_filtradas.filter(
             situacion__nombre="Resuelto"
         ).count()
 
@@ -153,8 +173,15 @@ class ResumenEstadisticas(APIView):
 
 class PublicacionesPorMesyCategoria(APIView):
     def get(self, request, *args, **kwargs):
+        # Filtrar las publicaciones usando PublicacionFilter
+        filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+        if not filterset.is_valid():
+            return Response(filterset.errors, status=400)
+
+        publicaciones_filtradas = filterset.qs
+
         datos = (
-            Publicacion.objects.annotate(mes=TruncMonth("fecha_publicacion"))
+            publicaciones_filtradas.annotate(mes=TruncMonth("fecha_publicacion"))
             .values("mes", "categoria__nombre")
             .annotate(total=Count("id"))
             .order_by("mes")
@@ -176,9 +203,16 @@ class PublicacionesPorMesyCategoria(APIView):
 
 class PublicacionesPorCategoria(APIView):
     def get(self, request, *args, **kwargs):
+        # Filtrar las publicaciones usando PublicacionFilter
+        filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+        if not filterset.is_valid():
+            return Response(filterset.errors, status=400)
+
+        publicaciones_filtradas = filterset.qs
+
         # Agrupar por categoría y contar publicaciones
         datos = (
-            Publicacion.objects.values("categoria__nombre")
+            publicaciones_filtradas.values("categoria__nombre")
             .annotate(total=Count("id"))
             .order_by("-total")
         )  # Ordenar por total en orden descendente
@@ -186,6 +220,37 @@ class PublicacionesPorCategoria(APIView):
         # Dar formato a los datos
         respuesta = [
             {"name": dato["categoria__nombre"], "value": dato["total"]}
+            for dato in datos
+        ]
+
+        return Response(respuesta)
+
+
+class ResueltosPorMes(APIView):
+    def get(self, request, *args, **kwargs):
+        # Aplicar filtros usando PublicacionFilter
+        filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+        if not filterset.is_valid():
+            return Response(filterset.errors, status=400)
+
+        publicaciones_filtradas = filterset.qs
+
+        # Filtrar publicaciones con situación "Resuelto"
+        publicaciones_resueltas = publicaciones_filtradas.filter(
+            situacion__nombre="Resuelto"
+        )
+
+        # Agrupar por mes y contar publicaciones resueltas
+        datos = (
+            publicaciones_resueltas.annotate(mes=TruncMonth("fecha_publicacion"))
+            .values("mes")
+            .annotate(resueltos=Count("id"))
+            .order_by("mes")
+        )
+
+        # Dar formato a los datos
+        respuesta = [
+            {"name": dato["mes"].strftime("%b"), "resueltos": dato["resueltos"]}
             for dato in datos
         ]
 
@@ -259,6 +324,24 @@ class EvidenciasViewSet(viewsets.ModelViewSet):
             permission_classes = [IsAuthenticatedOrAdmin]
         else:
             permission_classes = [IsAdmin]
+        return [permission() for permission in permission_classes]
+
+
+class ImagenesAnunciosViewSet(viewsets.ModelViewSet):
+    queryset = ImagenAnuncio.objects.all()
+    serializer_class = ImagenAnuncioSerializer
+
+    def get_permissions(self):
+        if self.action in [
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+        ]:
+            permission_classes = [IsAdmin]
+        else:
+            permission_classes = [IsAuthenticatedOrAdmin]
         return [permission() for permission in permission_classes]
 
 

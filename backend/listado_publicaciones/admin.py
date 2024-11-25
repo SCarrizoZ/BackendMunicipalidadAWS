@@ -8,6 +8,8 @@ from .models import (
     Evidencia,
     SituacionPublicacion,
     RespuestaMunicipal,
+    AnuncioMunicipal,
+    ImagenAnuncio,
 )
 
 # Registro de modelos básicos en el admin
@@ -19,3 +21,5 @@ admin.site.register(Publicacion)
 admin.site.register(Evidencia)
 admin.site.register(SituacionPublicacion)
 admin.site.register(RespuestaMunicipal)
+admin.site.register(AnuncioMunicipal)
+admin.site.register(ImagenAnuncio)

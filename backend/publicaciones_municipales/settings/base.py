@@ -157,7 +157,6 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "API para gestionar las publicaciones municipales",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
-    # OTHER SETTINGS
 }
 
 AUTH_USER_MODEL = "listado_publicaciones.Usuario"

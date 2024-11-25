@@ -122,11 +122,24 @@ class Evidencia(models.Model):
 class AnuncioMunicipal(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.RESTRICT)
     titulo = models.CharField(max_length=100)
+    subtitulo = models.CharField(max_length=100)
+    estado = models.CharField(max_length=100, default="Pendiente")
     descripcion = models.TextField()
+    categoria = models.ForeignKey(Categoria, on_delete=models.RESTRICT)
     fecha = models.DateTimeField(default=timezone.now)
 
     def __str__(self):
         return self.titulo
+
+
+class ImagenAnuncio(models.Model):
+    anuncio = models.ForeignKey(AnuncioMunicipal, on_delete=models.RESTRICT)
+    imagen = CloudinaryField("imagen")
+    fecha = models.DateTimeField(default=timezone.now)
+    extension = models.CharField(max_length=30)
+
+    def __str__(self):
+        return f"Imagen para: {self.anuncio.titulo}"
 
 
 class RespuestaMunicipal(models.Model):

@@ -11,12 +11,15 @@ from .views.v1 import (
     JuntasVecinalesViewSet,
     RespuestasMunicipalesViewSet,
     SituacionesPublicacionesViewSet,
+    AnunciosMunicipalesViewSet,
+    ImagenesAnunciosViewSet,
 )
 from .views.v1 import (
     export_to_excel,
     PublicacionesPorMesyCategoria,
     PublicacionesPorCategoria,
     ResumenEstadisticas,
+    ResueltosPorMes,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -43,6 +46,12 @@ router.register(
     SituacionesPublicacionesViewSet,
     basename="situaciones-publicaciones",
 )
+router.register(
+    r"anuncios-municipales", AnunciosMunicipalesViewSet, basename="anuncios"
+)
+router.register(
+    r"imagenes-anuncios", ImagenesAnunciosViewSet, basename="imagenes-anuncios"
+)
 
 urlpatterns = [
     path("v1/", include(router.urls)),
@@ -54,5 +63,6 @@ urlpatterns = [
     ),
     path("v1/publicaciones-por-categoria/", PublicacionesPorCategoria.as_view()),
     path("v1/resumen-estadisticas/", ResumenEstadisticas.as_view()),
+    path("v1/resueltos-por-mes/", ResueltosPorMes.as_view()),
     path("v1/export-to-excel/", export_to_excel),
 ]

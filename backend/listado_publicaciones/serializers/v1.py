@@ -175,7 +175,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
 
 # Serializer para Imagen Anuncio
 class ImagenAnuncioSerializer(serializers.ModelSerializer):
-    anuncio_id = serializers.PrimaryKeyRelatedField(
+    anuncio = serializers.PrimaryKeyRelatedField(
         queryset=AnuncioMunicipal.objects.all()
     )
 
@@ -183,17 +183,18 @@ class ImagenAnuncioSerializer(serializers.ModelSerializer):
         model = ImagenAnuncio
         fields = [
             "id",
-            "anuncio",
+            "anuncio",  # Usar solo este campo para IDs
             "imagen",
             "fecha",
             "extension",
-            "anuncio_id",
         ]
 
     def create(self, validated_data):
         archivo = validated_data.pop("imagen")
         upload_data = cloudinary.uploader.upload(archivo)
-        validated_data["imagen"] = upload_data["url"]
+        url_completa = upload_data["url"]
+        ruta_relativa = url_completa.split("de06451wd/")[1]
+        validated_data["imagen"] = ruta_relativa
         return ImagenAnuncio.objects.create(**validated_data)
 
 

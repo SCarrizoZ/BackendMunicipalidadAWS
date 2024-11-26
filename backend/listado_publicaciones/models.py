@@ -122,7 +122,7 @@ class Evidencia(models.Model):
 class AnuncioMunicipal(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.RESTRICT)
     titulo = models.CharField(max_length=100)
-    subtitulo = models.CharField(max_length=100)
+    subtitulo = models.CharField(max_length=500)
     estado = models.CharField(max_length=100, default="Pendiente")
     descripcion = models.TextField()
     categoria = models.ForeignKey(Categoria, on_delete=models.RESTRICT)

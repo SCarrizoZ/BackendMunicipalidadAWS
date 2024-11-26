@@ -198,9 +198,9 @@ class ImagenAnuncioSerializer(serializers.ModelSerializer):
 
 
 # Serializer para Anuncio Municipal
-class AnuncioMunicipalSerializer(serializers.ModelSerializer):
-    usuario = UsuarioListSerializer()
-    categoria = CategoriaSerializer()
+class AnuncioMunicipalListSerializer(serializers.ModelSerializer):
+    usuario = UsuarioListSerializer(read_only=True)
+    categoria = CategoriaSerializer(read_only=True)
     imagenes = ImagenAnuncioSerializer(
         many=True, read_only=True, source="imagenanuncio_set"
     )
@@ -217,6 +217,21 @@ class AnuncioMunicipalSerializer(serializers.ModelSerializer):
             "categoria",
             "fecha",
             "imagenes",
+        ]
+
+
+class AnuncioMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AnuncioMunicipal
+        fields = [
+            "id",
+            "usuario",
+            "titulo",
+            "subtitulo",
+            "estado",
+            "descripcion",
+            "categoria",
+            "fecha",
         ]
 
 

@@ -22,7 +22,8 @@ from ..serializers.v1 import (
     JuntaVecinalSerializer,
     RespuestaMunicipalSerializer,
     SituacionPublicacionSerializer,
-    AnuncioMunicipalSerializer,
+    AnuncioMunicipalListSerializer,
+    AnuncioMunicipalCreateUpdateSerializer,
     ImagenAnuncioSerializer,
 )
 from rest_framework import viewsets, status
@@ -39,7 +40,7 @@ from ..pagination import DynamicPageNumberPagination
 from ..filters import PublicacionFilter, AnuncioMunicipalFilter
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
 from datetime import datetime
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.db.models.functions import TruncMonth
 
 
@@ -64,7 +65,6 @@ class PublicacionViewSet(viewsets.ModelViewSet):
 
 class AnunciosMunicipalesViewSet(viewsets.ModelViewSet):
     queryset = AnuncioMunicipal.objects.all().order_by("-fecha")
-    serializer_class = AnuncioMunicipalSerializer
     pagination_class = DynamicPageNumberPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_class = AnuncioMunicipalFilter
@@ -76,6 +76,11 @@ class AnunciosMunicipalesViewSet(viewsets.ModelViewSet):
         else:
             permission_classes = [IsAdmin]
         return [permission() for permission in permission_classes]
+
+    def get_serializer_class(self):
+        if self.action in ["list", "retrieve"]:
+            return AnuncioMunicipalListSerializer
+        return AnuncioMunicipalCreateUpdateSerializer
 
 
 @api_view(["GET"])
@@ -235,24 +240,30 @@ class ResueltosPorMes(APIView):
 
         publicaciones_filtradas = filterset.qs
 
-        # Filtrar publicaciones con situación "Resuelto"
-        publicaciones_resueltas = publicaciones_filtradas.filter(
-            situacion__nombre="Resuelto"
-        )
-
-        # Agrupar por mes y contar publicaciones resueltas
-        datos = (
-            publicaciones_resueltas.annotate(mes=TruncMonth("fecha_publicacion"))
+        # Anotar publicaciones agrupadas por mes
+        publicaciones_por_mes = (
+            publicaciones_filtradas.annotate(mes=TruncMonth("fecha_publicacion"))
             .values("mes")
-            .annotate(resueltos=Count("id"))
+            .annotate(
+                recibidos=Count("id", filter=Q(situacion__nombre="Recibido")),
+                resueltos=Count("id", filter=Q(situacion__nombre="Resuelto")),
+                en_curso=Count("id", filter=Q(situacion__nombre="En curso")),
+            )
             .order_by("mes")
         )
 
-        # Dar formato a los datos
-        respuesta = [
-            {"name": dato["mes"].strftime("%b"), "resueltos": dato["resueltos"]}
-            for dato in datos
-        ]
+        # Convertir el formato para la respuesta
+        respuesta = []
+        for dato in publicaciones_por_mes:
+            mes = dato["mes"]
+            respuesta.append(
+                {
+                    "name": mes.strftime("%b"),
+                    "recibidos": dato["recibidos"],
+                    "resueltos": dato["resueltos"],
+                    "en_curso": dato["en_curso"],
+                }
+            )
 
         return Response(respuesta)
 

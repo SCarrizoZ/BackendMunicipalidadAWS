@@ -110,7 +110,7 @@ class Publicacion(models.Model):
 
 
 class Evidencia(models.Model):
-    publicacion = models.ForeignKey(Publicacion, on_delete=models.RESTRICT)
+    publicacion = models.ForeignKey(Publicacion, on_delete=models.CASCADE)
     archivo = CloudinaryField("archivo")
     fecha = models.DateTimeField(default=timezone.now)
     extension = models.CharField(max_length=30)
@@ -133,7 +133,7 @@ class AnuncioMunicipal(models.Model):
 
 
 class ImagenAnuncio(models.Model):
-    anuncio = models.ForeignKey(AnuncioMunicipal, on_delete=models.RESTRICT)
+    anuncio = models.ForeignKey(AnuncioMunicipal, on_delete=models.CASCADE)
     imagen = CloudinaryField("imagen")
     fecha = models.DateTimeField(default=timezone.now)
     extension = models.CharField(max_length=30)

@@ -20,7 +20,8 @@ from ..serializers.v1 import (
     DepartamentoMunicipalSerializer,
     EvidenciaSerializer,
     JuntaVecinalSerializer,
-    RespuestaMunicipalSerializer,
+    RespuestaMunicipalCreateUpdateSerializer,
+    RespuestaMunicipalListSerializer,
     SituacionPublicacionSerializer,
     AnuncioMunicipalListSerializer,
     AnuncioMunicipalCreateUpdateSerializer,
@@ -370,7 +371,6 @@ class JuntasVecinalesViewSet(viewsets.ModelViewSet):
 
 class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
     queryset = RespuestaMunicipal.objects.all()
-    serializer_class = RespuestaMunicipalSerializer
 
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -378,6 +378,11 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
         else:
             permission_classes = [IsAdmin]
         return [permission() for permission in permission_classes]
+
+    def get_serializer_class(self):
+        if self.action in ["list", "retrieve"]:
+            return RespuestaMunicipalListSerializer
+        return RespuestaMunicipalCreateUpdateSerializer
 
 
 class SituacionesPublicacionesViewSet(viewsets.ModelViewSet):

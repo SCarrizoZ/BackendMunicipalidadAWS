@@ -6,6 +6,8 @@ from django.contrib.auth.models import (
 )
 from cloudinary.models import CloudinaryField
 from django.utils import timezone
+import uuid
+from datetime import datetime
 
 # Create your models here.
 
@@ -79,7 +81,8 @@ class SituacionPublicacion(models.Model):
 
 
 class JuntaVecinal(models.Model):
-    nombre_calle = models.CharField(max_length=60)
+    nombre_junta = models.CharField(max_length=200, unique=True, null=True, blank=True)
+    nombre_calle = models.CharField(max_length=60, null=True, blank=True)
     numero_calle = models.IntegerField()
     departamento = models.CharField(max_length=40, null=True, blank=True)
     villa = models.CharField(max_length=40, null=True, blank=True)
@@ -104,9 +107,27 @@ class Publicacion(models.Model):
     titulo = models.CharField(max_length=100)
     latitud = models.DecimalField(max_digits=9, decimal_places=6)
     longitud = models.DecimalField(max_digits=9, decimal_places=6)
+    nombre_calle = models.CharField(max_length=100, null=True, blank=True)
+    numero_calle = models.IntegerField()
+    codigo = models.CharField(max_length=30, unique=True, blank=True, null=True)
 
     def __str__(self):
-        return self.titulo
+        return (
+            (self.codigo if self.codigo else "Sin código")
+            + " - "
+            + self.fecha_publicacion.strftime("%d/%m/%Y")
+        )
+
+    def save(self, *args, **kwargs):
+        if not self.codigo:
+            current_year = datetime.now().year
+            current_month = datetime.now().month
+            while True:
+                codigo_generado = f"P-{current_year}-{current_month.zfill(2)}-{uuid.uuid4().hex[:8].upper()}"
+                if not Publicacion.objects.filter(codigo=codigo_generado).exists():
+                    self.codigo = codigo_generado
+                    break
+        super().save(*args, **kwargs)
 
 
 class Evidencia(models.Model):

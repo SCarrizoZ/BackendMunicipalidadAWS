@@ -87,6 +87,7 @@ class JuntaVecinalSerializer(serializers.ModelSerializer):
         model = JuntaVecinal
         fields = [
             "id",
+            "nombre_junta",
             "nombre_calle",
             "numero_calle",
             "departamento",
@@ -141,6 +142,9 @@ class PublicacionListSerializer(serializers.ModelSerializer):
         model = Publicacion
         fields = [
             "id",
+            "codigo",
+            "nombre_calle",
+            "numero_calle",
             "usuario",
             "junta_vecinal",
             "categoria",
@@ -160,6 +164,9 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         model = Publicacion
         fields = [
             "id",
+            "codigo",
+            "nombre_calle",
+            "numero_calle",
             "usuario",
             "junta_vecinal",
             "categoria",
@@ -237,9 +244,24 @@ class AnuncioMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
 
 
 # Serializer para Respuesta Municipal
-class RespuestaMunicipalSerializer(serializers.ModelSerializer):
-    usuario = UsuarioListSerializer()
-    publicacion = PublicacionListSerializer()
+class RespuestaMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RespuestaMunicipal
+        fields = [
+            "id",
+            "usuario",
+            "publicacion",
+            "fecha",
+            "descripcion",
+            "acciones",
+            "situacion_inicial",
+            "situacion_posterior",
+        ]
+
+
+class RespuestaMunicipalListSerializer(serializers.ModelSerializer):
+    usuario = UsuarioListSerializer(read_only=True)
+    publicacion = PublicacionListSerializer(read_only=True)
 
     class Meta:
         model = RespuestaMunicipal

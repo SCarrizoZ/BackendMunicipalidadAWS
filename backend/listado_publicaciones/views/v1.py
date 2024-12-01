@@ -30,7 +30,7 @@ from ..serializers.v1 import (
 from rest_framework import viewsets, status
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.filters import OrderingFilter
@@ -373,16 +373,37 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
     queryset = RespuestaMunicipal.objects.all()
 
     def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
+        if self.action in ["list", "retrieve", "por_publicacion"]:
             permission_classes = [IsAuthenticatedOrAdmin]
         else:
             permission_classes = [IsAdmin]
         return [permission() for permission in permission_classes]
 
     def get_serializer_class(self):
-        if self.action in ["list", "retrieve"]:
+        if self.action in ["list", "retrieve", "por_publicacion"]:
             return RespuestaMunicipalListSerializer
         return RespuestaMunicipalCreateUpdateSerializer
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="por-publicacion/(?P<publicacion_id>[^/.]+)",
+    )
+    def por_publicacion(self, request, publicacion_id=None):
+        """
+        Endpoint personalizado para obtener todas las respuestas municipales
+        asociadas a una publicación específica.
+        """
+        respuestas = self.queryset.filter(publicacion_id=publicacion_id)
+
+        if not respuestas.exists():
+            return Response(
+                {"detail": "No se encontraron respuestas para esta publicación."},
+                status=404,
+            )
+
+        serializer = self.get_serializer(respuestas, many=True)
+        return Response(serializer.data)
 
 
 class SituacionesPublicacionesViewSet(viewsets.ModelViewSet):

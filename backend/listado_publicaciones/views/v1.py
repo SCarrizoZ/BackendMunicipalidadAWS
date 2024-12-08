@@ -269,6 +269,71 @@ class ResueltosPorMes(APIView):
         return Response(respuesta)
 
 
+class PublicacionesPorJuntaVecinalAPIView(APIView):
+    """
+    Vista para retornar datos con formato de Junta Vecinal y categorías
+    aplicando filtros a las publicaciones.
+    """
+
+    def get(self, request, *args, **kwargs):
+        # Aplicar el filtro a las publicaciones
+        publicaciones = Publicacion.objects.all()
+        filterset = PublicacionFilter(request.GET, queryset=publicaciones)
+
+        if not filterset.is_valid():
+            return Response(
+                {"error": "Filtros inválidos", "detalles": filterset.errors},
+                status=400,
+            )
+
+        publicaciones_filtradas = filterset.qs
+
+        # Calcular el total global de publicaciones filtradas
+        total_publicaciones = publicaciones_filtradas.count()
+
+        # Agregar datos por junta vecinal
+        datos = []
+        juntas = JuntaVecinal.objects.all()
+
+        for junta in juntas:
+            # Filtrar publicaciones asociadas a esta junta
+            publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
+            total_junta = publicaciones_junta.count()
+
+            if total_junta == 0:
+                continue  # Saltar juntas sin publicaciones
+
+            # Obtener recuento por categoría
+            categorias_conteo = (
+                publicaciones_junta.values("categoria__nombre")
+                .annotate(conteo=Count("id"))
+                .order_by("-conteo")
+            )
+
+            # Construir el resultado para esta junta
+            junta_data = {
+                "Junta_Vecinal": {
+                    "latitud": junta.latitud,
+                    "longitud": junta.longitud,
+                    "nombre": junta.nombre_junta,
+                    "total_publicaciones": total_junta,
+                    "intensidad": (
+                        total_junta / total_publicaciones
+                        if total_publicaciones > 0
+                        else 0
+                    ),
+                },
+            }
+
+            # Agregar categorías dinámicamente
+            for categoria in categorias_conteo:
+                junta_data[categoria["categoria__nombre"]] = categoria["conteo"]
+
+            datos.append(junta_data)
+
+        return Response(datos, status=200)
+
+
 class UsuariosViewSet(viewsets.ModelViewSet):
     queryset = Usuario.objects.all()
 

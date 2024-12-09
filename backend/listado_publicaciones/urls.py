@@ -21,6 +21,7 @@ from .views.v1 import (
     ResumenEstadisticas,
     ResueltosPorMes,
     PublicacionesPorJuntaVecinalAPIView,
+    generate_pdf_report,
 )
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -70,4 +71,5 @@ urlpatterns = [
         PublicacionesPorJuntaVecinalAPIView.as_view(),
     ),
     path("v1/export-to-excel/", export_to_excel),
+    path("v1/generate-pdf-report/", generate_pdf_report),
 ]

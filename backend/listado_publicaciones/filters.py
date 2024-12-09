@@ -31,7 +31,7 @@ class PublicacionFilter(django_filters.FilterSet):
             # Creamos una Q para filtrar usando OR
             query = Q()
             for junta in junta_vecinal_list:
-                query |= Q(junta_vecinal__nombre_calle__icontains=junta)
+                query |= Q(junta_vecinal__nombre_junta__icontains=junta)
             return queryset.filter(query)
         return queryset
 

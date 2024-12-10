@@ -13,16 +13,16 @@ from .views.v1 import (
     SituacionesPublicacionesViewSet,
     AnunciosMunicipalesViewSet,
     ImagenesAnunciosViewSet,
-)
-from .views.v1 import (
-    export_to_excel,
     PublicacionesPorMesyCategoria,
     PublicacionesPorCategoria,
     ResumenEstadisticas,
     ResueltosPorMes,
+    TasaResolucionDepartamento,
     PublicacionesPorJuntaVecinalAPIView,
+    export_to_excel,
     generate_pdf_report,
 )
+
 from rest_framework_simplejwt.views import TokenRefreshView
 
 router = DefaultRouter()
@@ -66,6 +66,7 @@ urlpatterns = [
     path("v1/publicaciones-por-categoria/", PublicacionesPorCategoria.as_view()),
     path("v1/resumen-estadisticas/", ResumenEstadisticas.as_view()),
     path("v1/resueltos-por-mes/", ResueltosPorMes.as_view()),
+    path("v1/tasa-resolucion-departamento/", TasaResolucionDepartamento.as_view()),
     path(
         "v1/publicaciones-por-junta-vecinal/",
         PublicacionesPorJuntaVecinalAPIView.as_view(),

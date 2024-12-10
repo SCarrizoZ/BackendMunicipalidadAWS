@@ -99,7 +99,11 @@ class Publicacion(models.Model):
     junta_vecinal = models.ForeignKey(JuntaVecinal, on_delete=models.RESTRICT)
     categoria = models.ForeignKey(Categoria, on_delete=models.RESTRICT)
     situacion = models.ForeignKey(
-        SituacionPublicacion, on_delete=models.RESTRICT, null=True, blank=True
+        SituacionPublicacion,
+        on_delete=models.RESTRICT,
+        null=True,
+        blank=True,
+        default=4,
     )
     departamento = models.ForeignKey(DepartamentoMunicipal, on_delete=models.RESTRICT)
     descripcion = models.TextField()
@@ -120,8 +124,8 @@ class Publicacion(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.codigo:
-            current_year = datetime.now().year
-            current_month = datetime.now().month
+            current_year = str(datetime.now().year)
+            current_month = str(datetime.now().month)
             while True:
                 codigo_generado = f"P-{current_year}-{current_month.zfill(2)}-{uuid.uuid4().hex[:8].upper()}"
                 if not Publicacion.objects.filter(codigo=codigo_generado).exists():

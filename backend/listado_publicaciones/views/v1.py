@@ -987,14 +987,32 @@ def generate_pdf_report(request):
         pdf.drawString(50, height - 110, "Comentarios:")
         pdf.setFont("Helvetica", 12)
 
-        # Dividir comentarios en líneas si son muy largos
-        y_position = height - 130
+        pdf.setFont("Helvetica", 12)
+        y_position = height - 130  # Posición inicial (debajo del encabezado)
         max_width = 80  # Máximo número de caracteres por línea
-        comentarios = comentarios if comentarios else "No hay comentarios."
+
+        if not comentarios:
+            comentarios = "No hay comentarios."
+
         for linea in comentarios.split("\n"):
+            # Dividir la línea en fragmentos que quepan en el ancho permitido
             for wrapped_line in textwrap.wrap(linea, max_width):
+                if y_position < 70:  # Si se acerca al footer, crear nueva página
+                    pdf.showPage()
+                    y_position = height - 90  # Reiniciar posición en nueva página
+                    pdf.setFont(
+                        "Helvetica", 12
+                    )  # Restablecer la fuente después del salto
+
+                # Dibujar la línea en la posición actual
                 pdf.drawString(50, y_position, wrapped_line.strip())
                 y_position -= 20  # Espaciado entre líneas
+
+        # Agregar footer en la última página
+        pdf.setFont("Helvetica", 8)
+        pdf.drawString(
+            50, 30, f"Generado el {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+        )
 
         # Add footer
         pdf.setFont("Helvetica", 8)

@@ -49,7 +49,6 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 from reportlab.platypus import Table, TableStyle
 import textwrap
-from reportlab.lib.units import inch
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -226,8 +225,22 @@ class PublicacionesPorMesyCategoria(APIView):
 
         # Dar formato a los datos
         meses_dict = {}
+        meses_espanol = {
+            1: "Ene",
+            2: "Feb",
+            3: "Mar",
+            4: "Abr",
+            5: "May",
+            6: "Jun",
+            7: "Jul",
+            8: "Ago",
+            9: "Sep",
+            10: "Oct",
+            11: "Nov",
+            12: "Dic",
+        }
         for dato in datos:
-            mes_nombre = dato["mes"].strftime("%b")  # Ene, Feb, Mar, etc.
+            mes_nombre = meses_espanol[dato["mes"].month]  # Ene, Feb, Mar, etc.
             if mes_nombre not in meses_dict:
                 meses_dict[mes_nombre] = {"name": mes_nombre}
 
@@ -285,12 +298,26 @@ class ResueltosPorMes(APIView):
         )
 
         # Convertir el formato para la respuesta
+        meses_espanol = {
+            1: "Ene",
+            2: "Feb",
+            3: "Mar",
+            4: "Abr",
+            5: "May",
+            6: "Jun",
+            7: "Jul",
+            8: "Ago",
+            9: "Sep",
+            10: "Oct",
+            11: "Nov",
+            12: "Dic",
+        }
         respuesta = []
         for dato in publicaciones_por_mes:
             mes = dato["mes"]
             respuesta.append(
                 {
-                    "name": mes.strftime("%b"),
+                    "name": meses_espanol[mes.month],
                     "recibidos": dato["recibidos"],
                     "resueltos": dato["resueltos"],
                     "en_curso": dato["en_curso"],
@@ -346,8 +373,22 @@ class TasaResolucionDepartamento(APIView):
 
         # Calcular la tasa de resolución
         respuesta = {}
+        meses_espanol = {
+            1: "Ene",
+            2: "Feb",
+            3: "Mar",
+            4: "Abr",
+            5: "May",
+            6: "Jun",
+            7: "Jul",
+            8: "Ago",
+            9: "Sep",
+            10: "Oct",
+            11: "Nov",
+            12: "Dic",
+        }
         for dato in datos:
-            mes_nombre = dato["mes"].strftime("%b")  # Ene, Feb, Mar, etc.
+            mes_nombre = meses_espanol[dato["mes"].month]  # Ene, Feb, Mar, etc.
             depto = dato["departamento_nombre"]
             total = dato["total"]
             resueltos = dato["resueltos"]
@@ -593,8 +634,22 @@ def generate_bar_chart(publicaciones_filtradas):
 
         # Formatear los datos
         meses_dict = {}
+        meses_espanol = {
+            1: "Ene",
+            2: "Feb",
+            3: "Mar",
+            4: "Abr",
+            5: "May",
+            6: "Jun",
+            7: "Jul",
+            8: "Ago",
+            9: "Sep",
+            10: "Oct",
+            11: "Nov",
+            12: "Dic",
+        }
         for dato in datos:
-            mes_nombre = dato["mes"].strftime("%b")  # Ene, Feb, Mar, etc.
+            mes_nombre = meses_espanol[dato["mes"].month]  # Ene, Feb, Mar, etc.
             if mes_nombre not in meses_dict:
                 meses_dict[mes_nombre] = {"name": mes_nombre}
 
@@ -720,12 +775,27 @@ def generate_line_chart(publicaciones_filtradas):
         )
 
         # Convertir el formato para la respuesta
+        # Convertir el formato para la respuesta
+        meses_espanol = {
+            1: "Ene",
+            2: "Feb",
+            3: "Mar",
+            4: "Abr",
+            5: "May",
+            6: "Jun",
+            7: "Jul",
+            8: "Ago",
+            9: "Sep",
+            10: "Oct",
+            11: "Nov",
+            12: "Dic",
+        }
         respuesta = []
         for dato in publicaciones_por_mes:
             mes = dato["mes"]
             respuesta.append(
                 {
-                    "name": mes.strftime("%b"),
+                    "name": meses_espanol[mes.month],
                     "recibidos": dato["recibidos"],
                     "resueltos": dato["resueltos"],
                     "en_curso": dato["en_curso"],
@@ -794,8 +864,6 @@ def generate_tasa_resolucion_table(publicaciones_filtradas):
             .order_by("mes", "departamento_nombre")
         )
 
-        print("datos", datos)
-
         # Formatear datos para la tabla
         encabezados = [
             "Departamento",
@@ -805,9 +873,24 @@ def generate_tasa_resolucion_table(publicaciones_filtradas):
             "Tasa de Resolución",
         ]
         filas = []
+        # Calcular la tasa de resolución
+        meses_espanol = {
+            1: "Ene",
+            2: "Feb",
+            3: "Mar",
+            4: "Abr",
+            5: "May",
+            6: "Jun",
+            7: "Jul",
+            8: "Ago",
+            9: "Sep",
+            10: "Oct",
+            11: "Nov",
+            12: "Dic",
+        }
 
         for dato in datos:
-            mes_nombre = dato["mes"].strftime("%b")
+            mes_nombre = meses_espanol[dato["mes"].month]
             depto = dato["departamento_nombre"]
             total = dato["total"]
             resueltos = dato["resueltos"]
@@ -859,7 +942,6 @@ def generate_pdf_report(request):
             "comentarios", "No se proporcionaron comentarios."
         )
         departamento = request.GET.get("departamento_reporte", "")
-        print(departamento)
         # Aplicar filtros usando PublicacionFilter
         filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
         if not filterset.is_valid():

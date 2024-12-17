@@ -143,8 +143,7 @@ class PublicacionListSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "codigo",
-            "nombre_calle",
-            "numero_calle",
+            "ubicacion",
             "usuario",
             "junta_vecinal",
             "categoria",
@@ -165,8 +164,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "codigo",
-            "nombre_calle",
-            "numero_calle",
+            "ubicacion",
             "usuario",
             "junta_vecinal",
             "categoria",

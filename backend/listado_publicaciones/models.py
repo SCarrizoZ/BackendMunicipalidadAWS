@@ -106,13 +106,12 @@ class Publicacion(models.Model):
         default=4,
     )
     departamento = models.ForeignKey(DepartamentoMunicipal, on_delete=models.RESTRICT)
-    descripcion = models.TextField()
+    descripcion = models.TextField(default="N/A", null=True, blank=True)
     fecha_publicacion = models.DateTimeField(default=timezone.now)
     titulo = models.CharField(max_length=100)
     latitud = models.DecimalField(max_digits=9, decimal_places=6)
     longitud = models.DecimalField(max_digits=9, decimal_places=6)
-    nombre_calle = models.CharField(max_length=100, null=True, blank=True)
-    numero_calle = models.IntegerField()
+    ubicacion = models.CharField(max_length=300, null=True, blank=True)
     codigo = models.CharField(max_length=30, unique=True, blank=True, null=True)
 
     def __str__(self):

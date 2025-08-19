@@ -3,13 +3,21 @@ from ..models import (
     Usuario,
     Categoria,
     DepartamentoMunicipal,
+    UsuarioDepartamento,
     Evidencia,
+    EvidenciaRespuesta,
     JuntaVecinal,
     Publicacion,
     RespuestaMunicipal,
     SituacionPublicacion,
     AnuncioMunicipal,
     ImagenAnuncio,
+    HistorialModificaciones,
+    Auditoria,
+    Columna,
+    Tarea,
+    Comentario,
+    Tablero,
 )
 import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -17,6 +25,10 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 # Serializer para Usuario
 class UsuarioListSerializer(serializers.ModelSerializer):
+    tipo_usuario_display = serializers.CharField(
+        source="get_tipo_usuario_display", read_only=True
+    )
+
     class Meta:
         model = Usuario
         fields = [
@@ -28,11 +40,17 @@ class UsuarioListSerializer(serializers.ModelSerializer):
             "es_administrador",
             "fecha_registro",
             "esta_activo",
+            "ultimo_acceso",
+            "tipo_usuario",
+            "tipo_usuario_display",
         ]
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)  # Solo para escritura
+    tipo_usuario_display = serializers.CharField(
+        source="get_tipo_usuario_display", read_only=True
+    )
 
     class Meta:
         model = Usuario
@@ -46,6 +64,9 @@ class UsuarioSerializer(serializers.ModelSerializer):
             "email",
             "fecha_registro",
             "esta_activo",
+            "ultimo_acceso",
+            "tipo_usuario",
+            "tipo_usuario_display",
         ]
 
     def create(self, validated_data):
@@ -61,28 +82,93 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         data["id"] = self.user.id
         data["es_administrador"] = self.user.es_administrador
+        data["tipo_usuario"] = self.user.tipo_usuario
+        data["tipo_usuario_display"] = self.user.get_tipo_usuario_display()
+        data["ultimo_acceso"] = self.user.ultimo_acceso
 
         return data
 
 
-# Serializer para Departamento Municipal
-class DepartamentoMunicipalSerializer(serializers.ModelSerializer):
+# Serializer para Departamento Municipal (versión simple para evitar referencias circulares)
+class DepartamentoMunicipalSimpleSerializer(serializers.ModelSerializer):
+    estado_display = serializers.CharField(source="get_estado_display", read_only=True)
+
     class Meta:
         model = DepartamentoMunicipal
-        fields = ["id", "nombre", "descripcion"]
+        fields = [
+            "id",
+            "nombre",
+            "descripcion",
+            "estado",
+            "estado_display",
+            "fecha_creacion",
+        ]
+
+
+# Serializer para Departamento Municipal (versión completa)
+class DepartamentoMunicipalSerializer(serializers.ModelSerializer):
+    jefe_departamento = UsuarioListSerializer(read_only=True)
+    funcionarios_count = serializers.SerializerMethodField()
+    estado_display = serializers.CharField(source="get_estado_display", read_only=True)
+
+    class Meta:
+        model = DepartamentoMunicipal
+        fields = [
+            "id",
+            "nombre",
+            "descripcion",
+            "estado",
+            "estado_display",
+            "fecha_creacion",
+            "jefe_departamento",
+            "funcionarios_count",
+        ]
+
+    def get_funcionarios_count(self, obj):
+        return obj.get_funcionarios_count()
+
+
+# Serializer para UsuarioDepartamento
+class UsuarioDepartamentoSerializer(serializers.ModelSerializer):
+    usuario = UsuarioListSerializer(read_only=True)
+    departamento = DepartamentoMunicipalSerializer(read_only=True)
+    estado_display = serializers.CharField(source="get_estado_display", read_only=True)
+
+    class Meta:
+        model = UsuarioDepartamento
+        fields = [
+            "id",
+            "usuario",
+            "departamento",
+            "fecha_asignacion",
+            "fecha_fin_asignacion",
+            "estado",
+            "estado_display",
+        ]
 
 
 # Serializer para Categoria
 class CategoriaSerializer(serializers.ModelSerializer):
-    departamento = DepartamentoMunicipalSerializer()
+    departamento = DepartamentoMunicipalSimpleSerializer(read_only=True)
+    estado_display = serializers.CharField(source="get_estado_display", read_only=True)
 
     class Meta:
         model = Categoria
-        fields = ["id", "departamento", "nombre", "descripcion"]
+        fields = [
+            "id",
+            "departamento",
+            "nombre",
+            "descripcion",
+            "estado",
+            "estado_display",
+            "fecha_creacion",
+        ]
 
 
 # Serializer para Junta Vecinal
 class JuntaVecinalSerializer(serializers.ModelSerializer):
+    estado_display = serializers.CharField(source="get_estado_display", read_only=True)
+
     class Meta:
         model = JuntaVecinal
         fields = [
@@ -90,11 +176,11 @@ class JuntaVecinalSerializer(serializers.ModelSerializer):
             "nombre_junta",
             "nombre_calle",
             "numero_calle",
-            "departamento",
-            "villa",
-            "comuna",
             "latitud",
             "longitud",
+            "estado",
+            "estado_display",
+            "fecha_creacion",
         ]
 
 
@@ -134,9 +220,13 @@ class PublicacionListSerializer(serializers.ModelSerializer):
     usuario = UsuarioListSerializer(read_only=True)
     junta_vecinal = JuntaVecinalSerializer(read_only=True)
     categoria = CategoriaSerializer(read_only=True)
-    departamento = DepartamentoMunicipalSerializer(read_only=True)
+    departamento = DepartamentoMunicipalSimpleSerializer(read_only=True)
     situacion = SituacionPublicacionSerializer(read_only=True)
     evidencias = EvidenciaSerializer(many=True, read_only=True, source="evidencia_set")
+    prioridad_display = serializers.CharField(
+        source="get_prioridad_display", read_only=True
+    )
+    encargado = UsuarioListSerializer(read_only=True)
 
     class Meta:
         model = Publicacion
@@ -150,10 +240,14 @@ class PublicacionListSerializer(serializers.ModelSerializer):
             "departamento",
             "descripcion",
             "situacion",
+            "es_incognito",
+            "encargado",
             "fecha_publicacion",
             "titulo",
             "latitud",
             "longitud",
+            "prioridad",
+            "prioridad_display",
             "evidencias",
         ]
 
@@ -170,11 +264,14 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
             "categoria",
             "departamento",
             "descripcion",
+            "es_incognito",
+            "encargado",
             "situacion",
             "fecha_publicacion",
             "titulo",
             "latitud",
             "longitud",
+            "prioridad",
         ]
 
 
@@ -241,6 +338,30 @@ class AnuncioMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
 
+# Serializer para Evidencia de Respuesta
+class EvidenciaRespuestaSerializer(serializers.ModelSerializer):
+    respuesta = serializers.PrimaryKeyRelatedField(
+        queryset=RespuestaMunicipal.objects.all()
+    )
+
+    class Meta:
+        model = EvidenciaRespuesta
+        fields = [
+            "id",
+            "respuesta",
+            "archivo",
+            "fecha",
+            "extension",
+            "descripcion",
+        ]
+
+    def create(self, validated_data):
+        archivo = validated_data.pop("archivo")
+        upload_data = cloudinary.uploader.upload(archivo)
+        validated_data["archivo"] = upload_data["url"]
+        return EvidenciaRespuesta.objects.create(**validated_data)
+
+
 # Serializer para Respuesta Municipal
 class RespuestaMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -254,12 +375,15 @@ class RespuestaMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
             "acciones",
             "situacion_inicial",
             "situacion_posterior",
+            "puntuacion",
         ]
 
 
 class RespuestaMunicipalListSerializer(serializers.ModelSerializer):
     usuario = UsuarioListSerializer(read_only=True)
     publicacion = PublicacionListSerializer(read_only=True)
+    evidencias = EvidenciaRespuestaSerializer(many=True, read_only=True)
+    puntuacion_display = serializers.SerializerMethodField()
 
     class Meta:
         model = RespuestaMunicipal
@@ -272,4 +396,184 @@ class RespuestaMunicipalListSerializer(serializers.ModelSerializer):
             "acciones",
             "situacion_inicial",
             "situacion_posterior",
+            "puntuacion",
+            "puntuacion_display",
+            "evidencias",
+        ]
+
+    def get_puntuacion_display(self, obj):
+        if obj.puntuacion:
+            return f"{obj.puntuacion} estrella{'s' if obj.puntuacion != 1 else ''}"
+        return "Sin puntuación"
+
+
+# Serializer para Historial de Modificaciones
+class HistorialModificacionesSerializer(serializers.ModelSerializer):
+    publicacion = PublicacionListSerializer(read_only=True)
+    autor = UsuarioListSerializer(read_only=True)
+
+    class Meta:
+        model = HistorialModificaciones
+        fields = [
+            "id",
+            "publicacion",
+            "fecha",
+            "campo_modificado",
+            "valor_anterior",
+            "valor_nuevo",
+            "autor",
+        ]
+
+
+# Serializer para Auditoría
+class AuditoriaSerializer(serializers.ModelSerializer):
+    autor = UsuarioListSerializer(read_only=True)
+
+    class Meta:
+        model = Auditoria
+        fields = [
+            "id",
+            "codigo",
+            "autor",
+            "accion",
+            "fecha",
+            "modulo",
+            "descripcion",
+            "es_exitoso",
+        ]
+
+
+# Serializers para Kanban
+class ColumnaSimpleSerializer(serializers.ModelSerializer):
+    tareas_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Columna
+        fields = [
+            "id",
+            "titulo",
+            "fecha_creacion",
+            "fecha_actualizacion",
+            "limite_tareas",
+            "tareas_count",
+        ]
+
+    def get_tareas_count(self, obj):
+        return obj.tareas.count()
+
+
+# Serializer simple para Publicacion (para evitar referencias circulares)
+class PublicacionSimpleSerializer(serializers.ModelSerializer):
+    usuario_nombre = serializers.CharField(source="usuario.nombre", read_only=True)
+    categoria_nombre = serializers.CharField(source="categoria.nombre", read_only=True)
+    prioridad_display = serializers.CharField(
+        source="get_prioridad_display", read_only=True
+    )
+
+    class Meta:
+        model = Publicacion
+        fields = [
+            "id",
+            "codigo",
+            "titulo",
+            "descripcion",
+            "fecha_publicacion",
+            "prioridad",
+            "prioridad_display",
+            "usuario_nombre",
+            "categoria_nombre",
+        ]
+
+
+class TareaListSerializer(serializers.ModelSerializer):
+    columna = ColumnaSimpleSerializer(read_only=True)
+    encargado = UsuarioListSerializer(read_only=True)
+    categoria = CategoriaSerializer(read_only=True)
+    publicaciones = PublicacionSimpleSerializer(many=True, read_only=True)
+    prioridad_display = serializers.CharField(
+        source="get_prioridad_display", read_only=True
+    )
+
+    class Meta:
+        model = Tarea
+        fields = [
+            "id",
+            "titulo",
+            "descripcion",
+            "columna",
+            "fecha_creacion",
+            "fecha_actualizacion",
+            "fecha_limite",
+            "encargado",
+            "prioridad",
+            "prioridad_display",
+            "categoria",
+            "publicaciones",
+        ]
+
+
+class ColumnaSerializer(serializers.ModelSerializer):
+    tareas_count = serializers.SerializerMethodField()
+    tareas = TareaListSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Columna
+        fields = [
+            "id",
+            "titulo",
+            "fecha_creacion",
+            "fecha_actualizacion",
+            "limite_tareas",
+            "tareas_count",
+            "tareas",
+        ]
+
+    def get_tareas_count(self, obj):
+        return obj.tareas.count()
+
+
+class TareaCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tarea
+        fields = [
+            "id",
+            "titulo",
+            "descripcion",
+            "columna",
+            "fecha_limite",
+            "encargado",
+            "prioridad",
+            "categoria",
+            "publicaciones",
+        ]
+
+
+class ComentarioSerializer(serializers.ModelSerializer):
+    tarea = TareaListSerializer(read_only=True)
+    usuario = UsuarioListSerializer(read_only=True)
+
+    class Meta:
+        model = Comentario
+        fields = [
+            "id",
+            "tarea",
+            "usuario",
+            "contenido",
+            "fecha_creacion",
+        ]
+
+
+class TableroSerializer(serializers.ModelSerializer):
+    columnas = ColumnaSerializer(many=True, read_only=True)
+    departamento = DepartamentoMunicipalSimpleSerializer(read_only=True)
+
+    class Meta:
+        model = Tablero
+        fields = [
+            "id",
+            "titulo",
+            "fecha_creacion",
+            "fecha_actualizacion",
+            "departamento",
+            "columnas",
         ]

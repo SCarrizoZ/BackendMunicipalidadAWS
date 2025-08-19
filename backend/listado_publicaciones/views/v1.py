@@ -3,12 +3,20 @@ from ..models import (
     Usuario,
     Categoria,
     DepartamentoMunicipal,
+    UsuarioDepartamento,
     Evidencia,
+    EvidenciaRespuesta,
     JuntaVecinal,
     RespuestaMunicipal,
     SituacionPublicacion,
     AnuncioMunicipal,
     ImagenAnuncio,
+    HistorialModificaciones,
+    Auditoria,
+    Tablero,
+    Columna,
+    Tarea,
+    Comentario,
 )
 from ..serializers.v1 import (
     PublicacionListSerializer,
@@ -18,7 +26,9 @@ from ..serializers.v1 import (
     CustomTokenObtainPairSerializer,
     CategoriaSerializer,
     DepartamentoMunicipalSerializer,
+    UsuarioDepartamentoSerializer,
     EvidenciaSerializer,
+    EvidenciaRespuestaSerializer,
     JuntaVecinalSerializer,
     RespuestaMunicipalCreateUpdateSerializer,
     RespuestaMunicipalListSerializer,
@@ -26,6 +36,13 @@ from ..serializers.v1 import (
     AnuncioMunicipalListSerializer,
     AnuncioMunicipalCreateUpdateSerializer,
     ImagenAnuncioSerializer,
+    HistorialModificacionesSerializer,
+    AuditoriaSerializer,
+    TableroSerializer,
+    ColumnaSerializer,
+    TareaListSerializer,
+    TareaCreateUpdateSerializer,
+    ComentarioSerializer,
 )
 from rest_framework import viewsets, status
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -41,6 +58,7 @@ from ..pagination import DynamicPageNumberPagination
 from ..filters import PublicacionFilter, AnuncioMunicipalFilter
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
 from datetime import datetime
+from django.utils import timezone
 from django.db.models import Count, Q, F
 from django.db.models.functions import TruncMonth
 from reportlab.pdfgen import canvas
@@ -74,10 +92,42 @@ category_colors = {
     "Otro fuera de clasificación": "#778899",
 }
 
+meses_espanol = {
+    1: "Ene",
+    2: "Feb",
+    3: "Mar",
+    4: "Abr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Ago",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dic",
+}
+
 
 # Create your views here.
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+
+        # Si el login fue exitoso, actualizar el último acceso
+        if response.status_code == 200:
+            try:
+                # Obtener el usuario por RUT (USERNAME_FIELD)
+                rut = request.data.get("rut")
+                if rut:
+                    usuario = Usuario.objects.get(rut=rut)
+                    usuario.ultimo_acceso = timezone.now()
+                    usuario.save(update_fields=["ultimo_acceso"])
+            except Usuario.DoesNotExist:
+                pass  # No hacer nada si el usuario no existe
+
+        return response
 
 
 class PublicacionViewSet(viewsets.ModelViewSet):
@@ -225,20 +275,6 @@ class PublicacionesPorMesyCategoria(APIView):
 
         # Dar formato a los datos
         meses_dict = {}
-        meses_espanol = {
-            1: "Ene",
-            2: "Feb",
-            3: "Mar",
-            4: "Abr",
-            5: "May",
-            6: "Jun",
-            7: "Jul",
-            8: "Ago",
-            9: "Sep",
-            10: "Oct",
-            11: "Nov",
-            12: "Dic",
-        }
         for dato in datos:
             mes_nombre = meses_espanol[dato["mes"].month]  # Ene, Feb, Mar, etc.
             if mes_nombre not in meses_dict:
@@ -298,20 +334,6 @@ class ResueltosPorMes(APIView):
         )
 
         # Convertir el formato para la respuesta
-        meses_espanol = {
-            1: "Ene",
-            2: "Feb",
-            3: "Mar",
-            4: "Abr",
-            5: "May",
-            6: "Jun",
-            7: "Jul",
-            8: "Ago",
-            9: "Sep",
-            10: "Oct",
-            11: "Nov",
-            12: "Dic",
-        }
         respuesta = []
         for dato in publicaciones_por_mes:
             mes = dato["mes"]
@@ -373,20 +395,6 @@ class TasaResolucionDepartamento(APIView):
 
         # Calcular la tasa de resolución
         respuesta = {}
-        meses_espanol = {
-            1: "Ene",
-            2: "Feb",
-            3: "Mar",
-            4: "Abr",
-            5: "May",
-            6: "Jun",
-            7: "Jul",
-            8: "Ago",
-            9: "Sep",
-            10: "Oct",
-            11: "Nov",
-            12: "Dic",
-        }
         for dato in datos:
             mes_nombre = meses_espanol[dato["mes"].month]  # Ene, Feb, Mar, etc.
             depto = dato["departamento_nombre"]
@@ -634,20 +642,6 @@ def generate_bar_chart(publicaciones_filtradas):
 
         # Formatear los datos
         meses_dict = {}
-        meses_espanol = {
-            1: "Ene",
-            2: "Feb",
-            3: "Mar",
-            4: "Abr",
-            5: "May",
-            6: "Jun",
-            7: "Jul",
-            8: "Ago",
-            9: "Sep",
-            10: "Oct",
-            11: "Nov",
-            12: "Dic",
-        }
         for dato in datos:
             mes_nombre = meses_espanol[dato["mes"].month]  # Ene, Feb, Mar, etc.
             if mes_nombre not in meses_dict:
@@ -775,21 +769,6 @@ def generate_line_chart(publicaciones_filtradas):
         )
 
         # Convertir el formato para la respuesta
-        # Convertir el formato para la respuesta
-        meses_espanol = {
-            1: "Ene",
-            2: "Feb",
-            3: "Mar",
-            4: "Abr",
-            5: "May",
-            6: "Jun",
-            7: "Jul",
-            8: "Ago",
-            9: "Sep",
-            10: "Oct",
-            11: "Nov",
-            12: "Dic",
-        }
         respuesta = []
         for dato in publicaciones_por_mes:
             mes = dato["mes"]
@@ -874,21 +853,6 @@ def generate_tasa_resolucion_table(publicaciones_filtradas):
         ]
         filas = []
         # Calcular la tasa de resolución
-        meses_espanol = {
-            1: "Ene",
-            2: "Feb",
-            3: "Mar",
-            4: "Abr",
-            5: "May",
-            6: "Jun",
-            7: "Jul",
-            8: "Ago",
-            9: "Sep",
-            10: "Oct",
-            11: "Nov",
-            12: "Dic",
-        }
-
         for dato in datos:
             mes_nombre = meses_espanol[dato["mes"].month]
             depto = dato["departamento_nombre"]
@@ -1196,3 +1160,341 @@ def generate_pdf_report(request):
     except Exception as e:
         print(e)
         return HttpResponse("Error al generar el PDF", status=500)
+
+
+# ViewSets para los nuevos modelos
+
+
+class UsuarioDepartamentoViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar asignaciones de usuarios a departamentos"""
+
+    queryset = UsuarioDepartamento.objects.all()
+    serializer_class = UsuarioDepartamentoSerializer
+    permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        queryset = UsuarioDepartamento.objects.all()
+        departamento_id = self.request.query_params.get("departamento", None)
+        usuario_id = self.request.query_params.get("usuario", None)
+
+        if departamento_id is not None:
+            queryset = queryset.filter(departamento_id=departamento_id)
+        if usuario_id is not None:
+            queryset = queryset.filter(usuario_id=usuario_id)
+
+        return queryset
+
+
+class EvidenciaRespuestaViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar evidencias de respuestas municipales"""
+
+    queryset = EvidenciaRespuesta.objects.all()
+    serializer_class = EvidenciaRespuestaSerializer
+    permission_classes = [IsAuthenticatedOrAdmin]
+
+    def get_queryset(self):
+        queryset = EvidenciaRespuesta.objects.all()
+        respuesta_id = self.request.query_params.get("respuesta", None)
+
+        if respuesta_id is not None:
+            queryset = queryset.filter(respuesta_id=respuesta_id)
+
+        return queryset
+
+
+class HistorialModificacionesViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet para consultar historial de modificaciones (solo lectura)"""
+
+    queryset = HistorialModificaciones.objects.all().order_by("-fecha")
+    serializer_class = HistorialModificacionesSerializer
+    permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        queryset = HistorialModificaciones.objects.all().order_by("-fecha")
+        publicacion_id = self.request.query_params.get("publicacion", None)
+        autor_id = self.request.query_params.get("autor", None)
+
+        if publicacion_id is not None:
+            queryset = queryset.filter(publicacion_id=publicacion_id)
+        if autor_id is not None:
+            queryset = queryset.filter(autor_id=autor_id)
+
+        return queryset
+
+
+class AuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet para consultar auditorías (solo lectura)"""
+
+    queryset = Auditoria.objects.all().order_by("-fecha")
+    serializer_class = AuditoriaSerializer
+    permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        queryset = Auditoria.objects.all().order_by("-fecha")
+        autor_id = self.request.query_params.get("autor", None)
+        modulo = self.request.query_params.get("modulo", None)
+        es_exitoso = self.request.query_params.get("es_exitoso", None)
+
+        if autor_id is not None:
+            queryset = queryset.filter(autor_id=autor_id)
+        if modulo is not None:
+            queryset = queryset.filter(modulo__icontains=modulo)
+        if es_exitoso is not None:
+            queryset = queryset.filter(es_exitoso=es_exitoso.lower() == "true")
+
+        return queryset
+
+
+# ViewSets para Sistema Kanban
+
+
+class TableroViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar tableros Kanban"""
+
+    queryset = Tablero.objects.all().order_by("-fecha_creacion")
+    serializer_class = TableroSerializer
+    permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        queryset = Tablero.objects.all().order_by("-fecha_creacion")
+        departamento_id = self.request.query_params.get("departamento", None)
+
+        if departamento_id is not None:
+            queryset = queryset.filter(departamento_id=departamento_id)
+
+        return queryset
+
+
+class ColumnaViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar columnas del tablero Kanban"""
+
+    queryset = Columna.objects.all().order_by("fecha_creacion")
+    serializer_class = ColumnaSerializer
+    permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        queryset = Columna.objects.all().order_by("fecha_creacion")
+        tablero_id = self.request.query_params.get("tablero", None)
+
+        if tablero_id is not None:
+            queryset = queryset.filter(tablero_id=tablero_id)
+
+        return queryset
+
+
+class TareaViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar tareas del tablero Kanban"""
+
+    queryset = Tarea.objects.all().order_by("-fecha_creacion")
+    permission_classes = [IsAuthenticatedOrAdmin]
+
+    def get_serializer_class(self):
+        if self.action in ["list", "retrieve"]:
+            return TareaListSerializer
+        return TareaCreateUpdateSerializer
+
+    def get_queryset(self):
+        queryset = Tarea.objects.all().order_by("-fecha_creacion")
+        columna_id = self.request.query_params.get("columna", None)
+        encargado_id = self.request.query_params.get("encargado", None)
+        categoria_id = self.request.query_params.get("categoria", None)
+
+        if columna_id is not None:
+            queryset = queryset.filter(columna_id=columna_id)
+        if encargado_id is not None:
+            queryset = queryset.filter(encargado_id=encargado_id)
+        if categoria_id is not None:
+            queryset = queryset.filter(categoria_id=categoria_id)
+
+        return queryset
+
+    @action(detail=True, methods=["post"])
+    def agregar_publicacion(self, request, pk=None):
+        """Agregar una publicación a la tarea"""
+        tarea = self.get_object()
+        publicacion_id = request.data.get("publicacion_id")
+
+        try:
+            publicacion = Publicacion.objects.get(id=publicacion_id)
+            tarea.publicaciones.add(publicacion)
+            return Response({"status": "Publicación agregada"})
+        except Publicacion.DoesNotExist:
+            return Response({"error": "Publicación no encontrada"}, status=404)
+
+    @action(detail=True, methods=["post"])
+    def remover_publicacion(self, request, pk=None):
+        """Remover una publicación de la tarea"""
+        tarea = self.get_object()
+        publicacion_id = request.data.get("publicacion_id")
+
+        try:
+            publicacion = Publicacion.objects.get(id=publicacion_id)
+            tarea.publicaciones.remove(publicacion)
+            return Response({"status": "Publicación removida"})
+        except Publicacion.DoesNotExist:
+            return Response({"error": "Publicación no encontrada"}, status=404)
+
+
+class ComentarioViewSet(viewsets.ModelViewSet):
+    """ViewSet para gestionar comentarios de tareas"""
+
+    queryset = Comentario.objects.all().order_by("-fecha_creacion")
+    serializer_class = ComentarioSerializer
+    permission_classes = [IsAuthenticatedOrAdmin]
+
+    def get_queryset(self):
+        queryset = Comentario.objects.all().order_by("-fecha_creacion")
+        tarea_id = self.request.query_params.get("tarea", None)
+        usuario_id = self.request.query_params.get("usuario", None)
+
+        if tarea_id is not None:
+            queryset = queryset.filter(tarea_id=tarea_id)
+        if usuario_id is not None:
+            queryset = queryset.filter(usuario_id=usuario_id)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        # Asignar automáticamente el usuario actual al comentario
+        serializer.save(usuario=self.request.user)
+
+
+# Vistas de estadísticas extendidas
+
+
+@api_view(["GET"])
+@permission_classes([IsAdmin])
+def estadisticas_departamentos(request):
+    """Estadísticas generales de departamentos y funcionarios"""
+    departamentos = DepartamentoMunicipal.objects.all()
+
+    stats = []
+    for depto in departamentos:
+        funcionarios = UsuarioDepartamento.objects.filter(
+            departamento=depto, estado="activo"
+        )
+
+        stats.append(
+            {
+                "departamento": depto.nombre,
+                "total_funcionarios": funcionarios.count(),
+                "jefe_departamento": (
+                    depto.jefe_departamento.nombre if depto.jefe_departamento else None
+                ),
+                "estado": depto.estado,
+                "publicaciones_asignadas": Publicacion.objects.filter(
+                    departamento=depto
+                ).count(),
+            }
+        )
+
+    return Response(stats)
+
+
+@api_view(["GET"])
+@permission_classes([IsAdmin])
+def estadisticas_kanban(request):
+    """Estadísticas del sistema Kanban por departamento"""
+    departamento_id = request.query_params.get("departamento", None)
+
+    tableros_query = Tablero.objects.all()
+    if departamento_id:
+        tableros_query = tableros_query.filter(departamento_id=departamento_id)
+
+    stats = []
+    for tablero in tableros_query:
+        columnas = Columna.objects.filter(tablero=tablero)
+        total_tareas = 0
+        total_vencidas = 0
+
+        for columna in columnas:
+            tareas = Tarea.objects.filter(columna=columna)
+            total_tareas += tareas.count()
+            tareas_vencidas = (
+                tareas.filter(fecha_limite__lt=timezone.now()).count()
+                if tareas.exists()
+                else 0
+            )
+            total_vencidas += tareas_vencidas
+
+        stats.append(
+            {
+                "tablero": tablero.titulo,
+                "departamento": tablero.departamento.nombre,
+                "total_columnas": columnas.count(),
+                "total_tareas": total_tareas,
+                "tareas_vencidas": total_vencidas,
+            }
+        )
+
+    return Response(stats)
+
+
+@api_view(["GET"])
+@permission_classes([IsAdmin])
+def estadisticas_respuestas(request):
+    """Estadísticas de respuestas municipales con puntuaciones"""
+    # Estadísticas de puntuaciones
+    respuestas = RespuestaMunicipal.objects.exclude(puntuacion=0)
+
+    if not respuestas.exists():
+        return Response({"mensaje": "No hay respuestas con puntuación disponibles"})
+
+    # Calcular estadísticas de puntuación
+    puntuaciones = respuestas.values_list("puntuacion", flat=True)
+    puntuacion_promedio = sum(puntuaciones) / len(puntuaciones)
+
+    # Distribución de puntuaciones
+    distribucion = {}
+    for i in range(1, 6):
+        distribucion[f"{i}_estrella"] = respuestas.filter(puntuacion=i).count()
+
+    # Respuestas con evidencia
+    respuestas_con_evidencia = (
+        respuestas.filter(evidencias__isnull=False).distinct().count()
+    )
+
+    stats = {
+        "total_respuestas_puntuadas": respuestas.count(),
+        "puntuacion_promedio": round(puntuacion_promedio, 2),
+        "distribucion_puntuaciones": distribucion,
+        "respuestas_con_evidencia": respuestas_con_evidencia,
+        "porcentaje_con_evidencia": (
+            round((respuestas_con_evidencia / respuestas.count() * 100), 2)
+            if respuestas.count() > 0
+            else 0
+        ),
+    }
+
+    return Response(stats)
+
+
+def crear_auditoria(usuario, accion, modulo, descripcion, es_exitoso=True):
+    """Función auxiliar para crear registros de auditoría"""
+    try:
+        Auditoria.objects.create(
+            autor=usuario,
+            accion=accion,
+            modulo=modulo,
+            descripcion=descripcion,
+            es_exitoso=es_exitoso,
+        )
+    except Exception as e:
+        # Si falla la auditoría, no debe afectar la operación principal
+        print(f"Error al crear auditoría: {e}")
+
+
+def crear_historial_modificacion(
+    publicacion, campo, valor_anterior, valor_nuevo, autor
+):
+    """Función auxiliar para crear registros de historial de modificaciones"""
+    try:
+        HistorialModificaciones.objects.create(
+            publicacion=publicacion,
+            campo_modificado=campo,
+            valor_anterior=str(valor_anterior),
+            valor_nuevo=str(valor_nuevo),
+            autor=autor,
+        )
+    except Exception as e:
+        print(f"Error al crear historial: {e}")

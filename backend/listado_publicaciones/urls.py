@@ -21,6 +21,18 @@ from .views.v1 import (
     PublicacionesPorJuntaVecinalAPIView,
     export_to_excel,
     generate_pdf_report,
+    # Nuevas vistas
+    UsuarioDepartamentoViewSet,
+    EvidenciaRespuestaViewSet,
+    HistorialModificacionesViewSet,
+    AuditoriaViewSet,
+    TableroViewSet,
+    ColumnaViewSet,
+    TareaViewSet,
+    ComentarioViewSet,
+    estadisticas_departamentos,
+    estadisticas_kanban,
+    estadisticas_respuestas,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -55,6 +67,28 @@ router.register(
     r"imagenes-anuncios", ImagenesAnunciosViewSet, basename="imagenes-anuncios"
 )
 
+# Nuevas rutas
+router.register(
+    r"usuario-departamento",
+    UsuarioDepartamentoViewSet,
+    basename="usuario-departamento",
+)
+router.register(
+    r"evidencia-respuesta",
+    EvidenciaRespuestaViewSet,
+    basename="evidencia-respuesta",
+)
+router.register(
+    r"historial-modificaciones",
+    HistorialModificacionesViewSet,
+    basename="historial-modificaciones",
+)
+router.register(r"auditoria", AuditoriaViewSet, basename="auditoria")
+router.register(r"tableros", TableroViewSet, basename="tableros")
+router.register(r"columnas", ColumnaViewSet, basename="columnas")
+router.register(r"tareas", TareaViewSet, basename="tareas")
+router.register(r"comentarios", ComentarioViewSet, basename="comentarios")
+
 urlpatterns = [
     path("v1/", include(router.urls)),
     path("v1/token/", CustomTokenObtainPairView.as_view(), name="token_refresh"),
@@ -73,4 +107,8 @@ urlpatterns = [
     ),
     path("v1/export-to-excel/", export_to_excel),
     path("v1/generate-pdf-report/", generate_pdf_report),
+    # Nuevas rutas de estadísticas
+    path("v1/estadisticas-departamentos/", estadisticas_departamentos),
+    path("v1/estadisticas-kanban/", estadisticas_kanban),
+    path("v1/estadisticas-respuestas/", estadisticas_respuestas),
 ]

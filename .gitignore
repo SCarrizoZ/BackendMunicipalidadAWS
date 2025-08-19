@@ -4,6 +4,7 @@ env/
 #Archivos compilados de Python
 *.pyc
 __pycache__/
+.pytest_cache/
 
 #Configuración de entorno
 .env

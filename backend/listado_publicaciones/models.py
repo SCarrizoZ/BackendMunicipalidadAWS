@@ -178,6 +178,10 @@ class Categoria(models.Model):
     def __str__(self):
         return self.nombre
 
+    def get_cantidad_publicaciones(self):
+        """Retorna la cantidad de publicaciones asociadas a esta categoría"""
+        return Publicacion.objects.filter(categoria=self).count()
+
 
 class SituacionPublicacion(models.Model):
     nombre = models.CharField(max_length=100)

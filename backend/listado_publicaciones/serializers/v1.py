@@ -151,6 +151,9 @@ class UsuarioDepartamentoSerializer(serializers.ModelSerializer):
 class CategoriaSerializer(serializers.ModelSerializer):
     departamento = DepartamentoMunicipalSimpleSerializer(read_only=True)
     estado_display = serializers.CharField(source="get_estado_display", read_only=True)
+    cantidad_publicaciones = serializers.IntegerField(
+        source="get_cantidad_publicaciones", read_only=True
+    )
 
     class Meta:
         model = Categoria
@@ -161,8 +164,12 @@ class CategoriaSerializer(serializers.ModelSerializer):
             "descripcion",
             "estado",
             "estado_display",
+            "cantidad_publicaciones",
             "fecha_creacion",
         ]
+
+    def get_cantidad_publicaciones(self):
+        return self.get_cantidad_publicaciones()
 
 
 class CategoriaCreateUpdateSerializer(serializers.ModelSerializer):

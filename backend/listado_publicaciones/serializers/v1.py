@@ -165,6 +165,19 @@ class CategoriaSerializer(serializers.ModelSerializer):
         ]
 
 
+class CategoriaCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Categoria
+        fields = [
+            "id",
+            "departamento",
+            "nombre",
+            "descripcion",
+            "estado",
+            "fecha_creacion",
+        ]
+
+
 # Serializer para Junta Vecinal
 class JuntaVecinalSerializer(serializers.ModelSerializer):
     estado_display = serializers.CharField(source="get_estado_display", read_only=True)
@@ -201,7 +214,6 @@ class EvidenciaSerializer(serializers.ModelSerializer):
         model = Evidencia
         fields = [
             "id",
-            "publicacion",
             "archivo",
             "fecha",
             "extension",
@@ -209,9 +221,19 @@ class EvidenciaSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
+        # Validar y procesar publicacion_id
+        publicacion = validated_data.get("publicacion_id")
+        if isinstance(publicacion, Publicacion):
+            validated_data["publicacion_id"] = (
+                publicacion.id
+            )  # Convertir a ID si es un objeto
+        # Procesar el archivo con Cloudinary
         archivo = validated_data.pop("archivo")
         upload_data = cloudinary.uploader.upload(archivo)
-        validated_data["archivo"] = upload_data["url"]
+        url_completa = upload_data["url"]
+        ruta_relativa = url_completa.split("de06451wd/")[1]
+        validated_data["archivo"] = ruta_relativa
+        # Crear y devolver la instancia de Evidencia
         return Evidencia.objects.create(**validated_data)
 
 

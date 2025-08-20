@@ -25,6 +25,7 @@ from ..serializers.v1 import (
     UsuarioSerializer,
     CustomTokenObtainPairSerializer,
     CategoriaSerializer,
+    CategoriaCreateUpdateSerializer,
     DepartamentoMunicipalSerializer,
     UsuarioDepartamentoSerializer,
     EvidenciaSerializer,
@@ -507,15 +508,13 @@ class RegistroUsuarioView(APIView):
 
 
 class CategoriasViewSet(viewsets.ModelViewSet):
-    queryset = Categoria.objects.all()
-    serializer_class = CategoriaSerializer
+    queryset = Categoria.objects.all().order_by("-fecha_creacion")
+    permission_classes = [IsAuthenticatedOrAdmin]
 
-    def get_permissions(self):
+    def get_serializer_class(self):
         if self.action in ["list", "retrieve"]:
-            permission_classes = [IsAuthenticatedOrAdmin]
-        else:
-            permission_classes = [IsAdmin]
-        return [permission() for permission in permission_classes]
+            return CategoriaSerializer
+        return CategoriaCreateUpdateSerializer
 
 
 class DepartamentosMunicipalesViewSet(viewsets.ModelViewSet):

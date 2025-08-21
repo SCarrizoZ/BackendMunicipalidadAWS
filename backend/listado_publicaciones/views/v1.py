@@ -509,7 +509,13 @@ class RegistroUsuarioView(APIView):
 
 class CategoriasViewSet(viewsets.ModelViewSet):
     queryset = Categoria.objects.all().order_by("-fecha_creacion")
-    permission_classes = [IsAuthenticatedOrAdmin]
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            permission_classes = [IsAuthenticatedOrAdmin]
+        else:
+            permission_classes = [IsAdmin]
+        return [permission() for permission in permission_classes]
 
     def get_serializer_class(self):
         if self.action in ["list", "retrieve"]:
@@ -1497,3 +1503,58 @@ def crear_historial_modificacion(
         )
     except Exception as e:
         print(f"Error al crear historial: {e}")
+
+
+"""
+Endpoint para resumen de estadísticas para la gestión de datos (Juntas Vecinales, Categorías y Departamentos Municipales)
+Ejemplo de respuesta:
+const estadisticas = {
+  juntasVecinales: {
+    total: 45,
+    habilitados: 38,
+    pendientes: 5,
+    deshabilitado: 2,
+  },
+  categorias: {
+    total: 12,
+    habilitados: 10,
+    deshabilitados: 2,
+  },
+  departamentos: {
+    total: 8,
+    habilitados: 7,
+    deshabilitados: 1,
+  },
+}
+"""
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def estadisticas_gestion_datos(request):
+    juntas_vecinales = JuntaVecinal.objects.all()
+    categorias = Categoria.objects.all()
+    departamentos = DepartamentoMunicipal.objects.all()
+
+    estadisticas = {
+        "juntasVecinales": {
+            "total": juntas_vecinales.count(),
+            "habilitados": juntas_vecinales.filter(estado="habilitado").count(),
+            "pendientes": juntas_vecinales.filter(estado="pendiente").count(),
+            "deshabilitados": juntas_vecinales.filter(estado="deshabilitado").count(),
+        },
+        "categorias": {
+            "total": categorias.count(),
+            "habilitados": categorias.filter(estado="habilitado").count(),
+            "pendientes": categorias.filter(estado="pendiente").count(),
+            "deshabilitados": categorias.filter(estado="deshabilitado").count(),
+        },
+        "departamentos": {
+            "total": departamentos.count(),
+            "habilitados": departamentos.filter(estado="habilitado").count(),
+            "pendientes": departamentos.filter(estado="pendiente").count(),
+            "deshabilitados": departamentos.filter(estado="deshabilitado").count(),
+        },
+    }
+
+    return Response(estadisticas)

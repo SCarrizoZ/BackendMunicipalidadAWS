@@ -33,6 +33,7 @@ from .views.v1 import (
     estadisticas_departamentos,
     estadisticas_kanban,
     estadisticas_respuestas,
+    estadisticas_gestion_datos,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -111,4 +112,5 @@ urlpatterns = [
     path("v1/estadisticas-departamentos/", estadisticas_departamentos),
     path("v1/estadisticas-kanban/", estadisticas_kanban),
     path("v1/estadisticas-respuestas/", estadisticas_respuestas),
+    path("v1/estadisticas-gestion-datos/", estadisticas_gestion_datos),
 ]

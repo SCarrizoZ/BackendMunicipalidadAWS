@@ -27,7 +27,9 @@ from ..serializers.v1 import (
     CategoriaSerializer,
     CategoriaCreateUpdateSerializer,
     DepartamentoMunicipalSerializer,
+    DepartamentoMunicipalCreateUpdateSerializer,
     UsuarioDepartamentoSerializer,
+    UsuarioDepartamentoCreateUpdateSerializer,
     EvidenciaSerializer,
     EvidenciaRespuestaSerializer,
     JuntaVecinalSerializer,
@@ -56,7 +58,7 @@ from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 import pandas as pd
 from ..pagination import DynamicPageNumberPagination
-from ..filters import PublicacionFilter, AnuncioMunicipalFilter
+from ..filters import PublicacionFilter, AnuncioMunicipalFilter, UsuarioRolFilter
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
 from datetime import datetime
 from django.utils import timezone
@@ -481,7 +483,9 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
 
 
 class UsuariosViewSet(viewsets.ModelViewSet):
-    queryset = Usuario.objects.all()
+    queryset = Usuario.objects.all().order_by("-fecha_registro")
+    filterset_class = UsuarioRolFilter
+    filter_backends = (DjangoFilterBackend,)
 
     def get_permissions(self):
         if self.action in ["retrieve"]:
@@ -525,7 +529,11 @@ class CategoriasViewSet(viewsets.ModelViewSet):
 
 class DepartamentosMunicipalesViewSet(viewsets.ModelViewSet):
     queryset = DepartamentoMunicipal.objects.all()
-    serializer_class = DepartamentoMunicipalSerializer
+
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return DepartamentoMunicipalCreateUpdateSerializer
+        return DepartamentoMunicipalSerializer
 
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
@@ -1174,8 +1182,12 @@ class UsuarioDepartamentoViewSet(viewsets.ModelViewSet):
     """ViewSet para gestionar asignaciones de usuarios a departamentos"""
 
     queryset = UsuarioDepartamento.objects.all()
-    serializer_class = UsuarioDepartamentoSerializer
     permission_classes = [IsAdmin]
+
+    def get_serializer_class(self):
+        if self.action in ["create", "update"]:
+            return UsuarioDepartamentoCreateUpdateSerializer
+        return UsuarioDepartamentoSerializer
 
     def get_queryset(self):
         queryset = UsuarioDepartamento.objects.all()

@@ -28,6 +28,7 @@ class UsuarioListSerializer(serializers.ModelSerializer):
     tipo_usuario_display = serializers.CharField(
         source="get_tipo_usuario_display", read_only=True
     )
+    departamento_asignado = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
@@ -43,7 +44,19 @@ class UsuarioListSerializer(serializers.ModelSerializer):
             "ultimo_acceso",
             "tipo_usuario",
             "tipo_usuario_display",
+            "departamento_asignado",
         ]
+
+    def get_departamento_asignado(self, obj):
+        """Retorna el departamento asignado del usuario o 'No aplica'"""
+        departamento = obj.get_departamento_asignado()
+        if departamento:
+            return {
+                "id": departamento.id,
+                "nombre": departamento.nombre,
+                "descripcion": departamento.descripcion,
+            }
+        return "No aplica"
 
 
 class UsuarioSerializer(serializers.ModelSerializer):
@@ -51,6 +64,7 @@ class UsuarioSerializer(serializers.ModelSerializer):
     tipo_usuario_display = serializers.CharField(
         source="get_tipo_usuario_display", read_only=True
     )
+    departamento_asignado = serializers.SerializerMethodField()
 
     class Meta:
         model = Usuario
@@ -67,7 +81,19 @@ class UsuarioSerializer(serializers.ModelSerializer):
             "ultimo_acceso",
             "tipo_usuario",
             "tipo_usuario_display",
+            "departamento_asignado",
         ]
+
+    def get_departamento_asignado(self, obj):
+        """Retorna el departamento asignado del usuario o 'No aplica'"""
+        departamento = obj.get_departamento_asignado()
+        if departamento:
+            return {
+                "id": departamento.id,
+                "nombre": departamento.nombre,
+                "descripcion": departamento.descripcion,
+            }
+        return "No aplica"
 
     def create(self, validated_data):
         password = validated_data.pop("password")  # Extraer la contraseña
@@ -128,6 +154,19 @@ class DepartamentoMunicipalSerializer(serializers.ModelSerializer):
         return obj.get_funcionarios_count()
 
 
+class DepartamentoMunicipalCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DepartamentoMunicipal
+        fields = [
+            "id",
+            "nombre",
+            "descripcion",
+            "estado",
+            "fecha_creacion",
+            "jefe_departamento",
+        ]
+
+
 # Serializer para UsuarioDepartamento
 class UsuarioDepartamentoSerializer(serializers.ModelSerializer):
     usuario = UsuarioListSerializer(read_only=True)
@@ -144,6 +183,19 @@ class UsuarioDepartamentoSerializer(serializers.ModelSerializer):
             "fecha_fin_asignacion",
             "estado",
             "estado_display",
+        ]
+
+
+class UsuarioDepartamentoCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UsuarioDepartamento
+        fields = [
+            "id",
+            "usuario",
+            "departamento",
+            "fecha_asignacion",
+            "fecha_fin_asignacion",
+            "estado",
         ]
 
 

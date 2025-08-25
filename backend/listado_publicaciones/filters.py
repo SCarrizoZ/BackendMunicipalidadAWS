@@ -1,5 +1,5 @@
 import django_filters
-from .models import Publicacion, AnuncioMunicipal
+from .models import Publicacion, AnuncioMunicipal, Usuario
 from django.db.models import Q
 
 
@@ -118,4 +118,28 @@ class AnuncioMunicipalFilter(django_filters.FilterSet):
             "categoria",
             "fecha",
             "estado",
+        ]
+
+
+class UsuarioRolFilter(django_filters.FilterSet):
+    tipo_usuario = django_filters.CharFilter(
+        method="filter_tipo_usuario",
+        label="Tipo Usuario",
+    )
+
+    def filter_tipo_usuario(self, queryset, name, value):
+        if value:
+            # Dividimos los valores en caso de que lleguen como una cadena
+            tipo_usuario_list = value.split(",")
+            # Creamos una Q para filtrar usando OR
+            query = Q()
+            for tipo in tipo_usuario_list:
+                query |= Q(tipo_usuario__icontains=tipo)
+            return queryset.filter(query)
+        return queryset
+
+    class Meta:
+        model = Usuario  # Cambia esto al modelo adecuado si es necesario
+        fields = [
+            "tipo_usuario",
         ]

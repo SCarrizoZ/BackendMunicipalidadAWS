@@ -84,6 +84,25 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         """Retorna True si el usuario es jefe de departamento"""
         return self.tipo_usuario == "jefe_departamento"
 
+    def get_departamento_asignado(self):
+        """Retorna el departamento asignado del usuario"""
+        # Si es jefe de departamento, buscar el departamento que dirige
+        if self.tipo_usuario == "jefe_departamento":
+            try:
+                return self.departamento_dirigido
+            except DepartamentoMunicipal.DoesNotExist:
+                pass
+
+        # Si es personal municipal, buscar asignación activa
+        if self.tipo_usuario in ["personal", "jefe_departamento"]:
+            asignacion_activa = self.asignaciones_departamento.filter(
+                estado="activo", fecha_fin_asignacion__isnull=True
+            ).first()
+            if asignacion_activa:
+                return asignacion_activa.departamento
+
+        return None
+
 
 class DepartamentoMunicipal(models.Model):
     nombre = models.CharField(max_length=100)

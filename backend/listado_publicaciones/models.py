@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import (
     AbstractBaseUser,
     BaseUserManager,
@@ -102,6 +103,93 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
                 return asignacion_activa.departamento
 
         return None
+
+    @classmethod
+    def buscar_duplicados(cls, rut=None, email=None, excluir_id=None):
+        """
+        Método optimizado para buscar usuarios duplicados
+        """
+        duplicados = {}
+
+        if rut:
+            rut_normalizado = rut.replace(".", "").replace("-", "")
+            # Buscar en múltiples formatos de RUT
+            query = cls.objects.filter(
+                Q(rut=rut_normalizado)
+                | Q(rut=rut)
+                | Q(
+                    rut__in=[
+                        rut,
+                        rut_normalizado,
+                        (
+                            f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}"
+                            if len(rut_normalizado) >= 2
+                            else rut_normalizado
+                        ),
+                    ]
+                )
+            )
+            if excluir_id:
+                query = query.exclude(id=excluir_id)
+            usuario_rut = query.first()
+            if usuario_rut:
+                duplicados["rut"] = usuario_rut
+
+        if email:
+            query = cls.objects.filter(email__iexact=email)
+            if excluir_id:
+                query = query.exclude(id=excluir_id)
+            usuario_email = query.first()
+            if usuario_email:
+                duplicados["email"] = usuario_email
+
+        return duplicados
+
+    @classmethod
+    def normalizar_rut(cls, rut):
+        """Normaliza un RUT removiendo puntos y guiones"""
+        if not rut:
+            return rut
+        return rut.replace(".", "").replace("-", "")
+
+    @classmethod
+    def existe_usuario(cls, rut=None, email=None):
+        """
+        Verifica rápidamente si existe un usuario con el RUT o email dados
+        """
+        if rut:
+            rut_normalizado = cls.normalizar_rut(rut)
+            # Buscar en múltiples formatos
+            if cls.objects.filter(
+                Q(rut=rut_normalizado)
+                | Q(rut=rut)
+                | Q(
+                    rut__in=[
+                        rut,
+                        rut_normalizado,
+                        (
+                            f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}"
+                            if len(rut_normalizado) >= 2
+                            else rut_normalizado
+                        ),
+                    ]
+                )
+            ).exists():
+                return True
+
+        if email:
+            if cls.objects.filter(email__iexact=email).exists():
+                return True
+
+        return False
+
+    def save(self, *args, **kwargs):
+        """Override save para normalizar RUT automáticamente"""
+        if self.rut:
+            self.rut = self.normalizar_rut(self.rut)
+        if self.email:
+            self.email = self.email.lower()
+        super().save(*args, **kwargs)
 
 
 class DepartamentoMunicipal(models.Model):

@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.db.models import Q
 from ..models import (
     Usuario,
     Categoria,
@@ -94,6 +95,71 @@ class UsuarioSerializer(serializers.ModelSerializer):
                 "descripcion": departamento.descripcion,
             }
         return "No aplica"
+
+    def validate_rut(self, value):
+        """Validación personalizada para RUT"""
+        if not value:
+            raise serializers.ValidationError("El RUT es obligatorio")
+
+        # Normalizar RUT (remover puntos y guiones)
+        rut_normalizado = value.replace(".", "").replace("-", "")
+
+        # Validar formato básico (8-9 dígitos + dígito verificador)
+        if len(rut_normalizado) < 8 or len(rut_normalizado) > 9:
+            raise serializers.ValidationError(
+                "El RUT debe tener entre 8 y 9 caracteres"
+            )
+
+        # Verificar si ya existe (solo en creación)
+        if not self.instance:  # Solo validar en creación, no en actualización
+            # Buscar en múltiples formatos de RUT para detectar duplicados
+            if Usuario.objects.filter(
+                Q(rut=rut_normalizado)
+                | Q(rut=value)
+                | Q(
+                    rut__in=[
+                        value,  # Formato original
+                        rut_normalizado,  # Sin puntos ni guiones
+                        (
+                            f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}"
+                            if len(rut_normalizado) >= 2
+                            else rut_normalizado
+                        ),  # Con guión
+                    ]
+                )
+            ).exists():
+                raise serializers.ValidationError("Ya existe un usuario con este RUT")
+
+        return rut_normalizado
+
+    def validate_email(self, value):
+        """Validación personalizada para email"""
+        if not value:
+            raise serializers.ValidationError("El email es obligatorio")
+
+        # Verificar si ya existe (solo en creación)
+        if not self.instance:  # Solo validar en creación, no en actualización
+            if Usuario.objects.filter(email__iexact=value).exists():
+                raise serializers.ValidationError("Ya existe un usuario con este email")
+
+        return value.lower()
+
+    def validate(self, data):
+        """Validación general del serializer"""
+        # Validar que no se creen múltiples administradores si no es necesario
+        if data.get("tipo_usuario") == "administrador" and data.get(
+            "es_administrador", False
+        ):
+            # Limitar número de administradores si es necesario
+            admin_count = Usuario.objects.filter(
+                tipo_usuario="administrador", esta_activo=True
+            ).count()
+            if admin_count >= 3 and not self.instance:  # Máximo 3 admins
+                raise serializers.ValidationError(
+                    "No se pueden crear más de 3 administradores"
+                )
+
+        return data
 
     def create(self, validated_data):
         password = validated_data.pop("password")  # Extraer la contraseña

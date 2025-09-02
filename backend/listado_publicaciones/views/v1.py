@@ -451,6 +451,64 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
             if total_junta == 0:
                 continue  # Saltar juntas sin publicaciones
 
+            # Calcular publicaciones pendientes (situación inicial = 4 o null)
+            publicaciones_pendientes = publicaciones_junta.filter(
+                Q(situacion_id=4) | Q(situacion__isnull=True)
+            ).count()
+
+            # Calcular casos urgentes (prioridad alta)
+            casos_urgentes = publicaciones_junta.filter(prioridad="alta").count()
+            print(casos_urgentes)
+
+            # Calcular tiempo promedio pendiente (días desde la fecha_publicacion para publicaciones pendientes)
+            publicaciones_pendientes_qs = publicaciones_junta.filter(
+                Q(situacion_id=4) | Q(situacion__isnull=True)
+            )
+
+            tiempo_promedio_pendiente = 0
+            if publicaciones_pendientes_qs.exists():
+                dias_pendientes = []
+                ahora = timezone.now()
+                for pub in publicaciones_pendientes_qs:
+                    dias = (ahora - pub.fecha_publicacion).days
+                    dias_pendientes.append(dias)
+                tiempo_promedio_pendiente = (
+                    sum(dias_pendientes) // len(dias_pendientes)
+                    if dias_pendientes
+                    else 0
+                )
+
+            # Calcular índice de criticidad
+            # Factores: % pendientes (40%), casos urgentes (30%), tiempo promedio (20%), volumen (10%)
+            porcentaje_pendientes = (
+                (publicaciones_pendientes / total_junta) * 100 if total_junta > 0 else 0
+            )
+            porcentaje_urgentes = (
+                (casos_urgentes / total_junta) * 100 if total_junta > 0 else 0
+            )
+
+            # Normalizar tiempo promedio (máximo esperado 60 días)
+            factor_tiempo = min(tiempo_promedio_pendiente / 60, 1) * 100
+
+            # Normalizar volumen (considerando que >20 publicaciones es alto volumen)
+            factor_volumen = min(total_junta / 20, 1) * 100
+
+            # Calcular índice de criticidad (0-100)
+            indice_criticidad = (
+                (porcentaje_pendientes * 0.4)
+                + (porcentaje_urgentes * 0.3)
+                + (factor_tiempo * 0.2)
+                + (factor_volumen * 0.1)
+            )
+
+            # Obtener la última publicación de esta junta
+            ultima_publicacion = publicaciones_junta.order_by(
+                "-fecha_publicacion"
+            ).first()
+            fecha_ultima_publicacion = (
+                ultima_publicacion.fecha_publicacion if ultima_publicacion else None
+            )
+
             # Obtener recuento por categoría
             categorias_conteo = (
                 publicaciones_junta.values("categoria__nombre")
@@ -470,8 +528,21 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
                         if total_publicaciones > 0
                         else 0
                     ),
+                    "pendientes": publicaciones_pendientes,
+                    "urgentes": casos_urgentes,
+                    "indice_criticidad": round(indice_criticidad, 2),
+                    "porcentaje_pendientes": round(porcentaje_pendientes, 2),
+                    "porcentaje_urgentes": round(porcentaje_urgentes, 2),
                 },
+                "tiempo_promedio_pendiente": f"{tiempo_promedio_pendiente} días",
+                "ultima_publicacion": (
+                    fecha_ultima_publicacion.isoformat()
+                    if fecha_ultima_publicacion
+                    else None
+                ),
             }
+
+            print(junta_data)
 
             # Agregar categorías dinámicamente
             for categoria in categorias_conteo:
@@ -480,6 +551,415 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
             datos.append(junta_data)
 
         return Response(datos, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def junta_mas_critica(request):
+    """
+    Endpoint para obtener la junta vecinal más crítica y estadísticas de criticidad
+    """
+    # Aplicar el filtro a las publicaciones
+    publicaciones = Publicacion.objects.all()
+    filterset = PublicacionFilter(request.GET, queryset=publicaciones)
+
+    if not filterset.is_valid():
+        return Response(
+            {"error": "Filtros inválidos", "detalles": filterset.errors},
+            status=400,
+        )
+
+    publicaciones_filtradas = filterset.qs
+    juntas_criticidad = []
+
+    for junta in JuntaVecinal.objects.all():
+        publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
+        total_junta = publicaciones_junta.count()
+
+        if total_junta == 0:
+            continue
+
+        # Calcular métricas de criticidad
+        publicaciones_pendientes = publicaciones_junta.filter(
+            Q(situacion_id=4) | Q(situacion__isnull=True)
+        ).count()
+        casos_urgentes = publicaciones_junta.filter(prioridad="alta").count()
+
+        # Tiempo promedio pendiente
+        publicaciones_pendientes_qs = publicaciones_junta.filter(
+            Q(situacion_id=4) | Q(situacion__isnull=True)
+        )
+        tiempo_promedio_pendiente = 0
+        if publicaciones_pendientes_qs.exists():
+            dias_pendientes = []
+            ahora = timezone.now()
+            for pub in publicaciones_pendientes_qs:
+                dias = (ahora - pub.fecha_publicacion).days
+                dias_pendientes.append(dias)
+            tiempo_promedio_pendiente = (
+                sum(dias_pendientes) // len(dias_pendientes) if dias_pendientes else 0
+            )
+
+        # Calcular índice de criticidad
+        porcentaje_pendientes = (
+            (publicaciones_pendientes / total_junta) * 100 if total_junta > 0 else 0
+        )
+        porcentaje_urgentes = (
+            (casos_urgentes / total_junta) * 100 if total_junta > 0 else 0
+        )
+        factor_tiempo = min(tiempo_promedio_pendiente / 60, 1) * 100
+        factor_volumen = min(total_junta / 20, 1) * 100
+
+        indice_criticidad = (
+            (porcentaje_pendientes * 0.4)
+            + (porcentaje_urgentes * 0.3)
+            + (factor_tiempo * 0.2)
+            + (factor_volumen * 0.1)
+        )
+
+        juntas_criticidad.append(
+            {
+                "junta": {
+                    "id": junta.id,
+                    "nombre": junta.nombre_junta
+                    or f"{junta.nombre_calle} {junta.numero_calle}",
+                    "latitud": junta.latitud,
+                    "longitud": junta.longitud,
+                },
+                "metricas": {
+                    "total_publicaciones": total_junta,
+                    "publicaciones_pendientes": publicaciones_pendientes,
+                    "casos_urgentes": casos_urgentes,
+                    "tiempo_promedio_pendiente": tiempo_promedio_pendiente,
+                    "porcentaje_pendientes": round(porcentaje_pendientes, 2),
+                    "porcentaje_urgentes": round(porcentaje_urgentes, 2),
+                    "indice_criticidad": round(indice_criticidad, 2),
+                },
+            }
+        )
+
+    # Ordenar por índice de criticidad (mayor a menor)
+    juntas_criticidad.sort(
+        key=lambda x: x["metricas"]["indice_criticidad"], reverse=True
+    )
+
+    # Estadísticas generales
+    estadisticas = {
+        "total_juntas_analizadas": len(juntas_criticidad),
+        "junta_mas_critica": juntas_criticidad[0] if juntas_criticidad else None,
+        "top_5_criticas": juntas_criticidad[:5],
+        "promedio_criticidad": (
+            round(
+                sum(j["metricas"]["indice_criticidad"] for j in juntas_criticidad)
+                / len(juntas_criticidad),
+                2,
+            )
+            if juntas_criticidad
+            else 0
+        ),
+        "criterios_calculo": {
+            "porcentaje_pendientes": "40% del índice",
+            "porcentaje_urgentes": "30% del índice",
+            "factor_tiempo": "20% del índice (normalizado a 60 días máximo)",
+            "factor_volumen": "10% del índice (normalizado a 20 publicaciones máximo)",
+            "rango_indice": "0-100 (mayor = más crítico)",
+        },
+    }
+
+    return Response(estadisticas, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def publicaciones_resueltas_por_junta_vecinal(request):
+    """
+    Vista para retornar datos de publicaciones RESUELTAS por junta vecinal (Mapa de Frío)
+    - Publicaciones resueltas son las que NO tienen situación inicial (4) o null
+    - Calcula eficiencia, tiempo promedio de resolución y otras métricas positivas
+    """
+    # Aplicar el filtro a las publicaciones
+    publicaciones = Publicacion.objects.all()
+    filterset = PublicacionFilter(request.GET, queryset=publicaciones)
+
+    if not filterset.is_valid():
+        return Response(
+            {"error": "Filtros inválidos", "detalles": filterset.errors},
+            status=400,
+        )
+
+    publicaciones_filtradas = filterset.qs
+
+    # Calcular el total global de publicaciones filtradas
+    total_publicaciones = publicaciones_filtradas.count()
+
+    # Agregar datos por junta vecinal
+    datos = []
+    juntas = JuntaVecinal.objects.all()
+
+    for junta in juntas:
+        # Filtrar publicaciones asociadas a esta junta
+        publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
+        total_junta = publicaciones_junta.count()
+
+        if total_junta == 0:
+            continue  # Saltar juntas sin publicaciones
+
+        # Calcular publicaciones resueltas (NO situación inicial = 4 o null)
+        publicaciones_resueltas = publicaciones_junta.exclude(
+            Q(situacion_id=4) | Q(situacion__isnull=True)
+        ).count()
+
+        # Calcular eficiencia (porcentaje de publicaciones resueltas)
+        eficiencia = (
+            (publicaciones_resueltas / total_junta) * 100 if total_junta > 0 else 0
+        )
+
+        # Solo incluir juntas con al menos alguna publicación resuelta
+        if publicaciones_resueltas == 0:
+            continue
+
+        # Calcular casos de alta prioridad resueltos
+        casos_alta_prioridad_resueltos = (
+            publicaciones_junta.filter(prioridad="alta")
+            .exclude(Q(situacion_id=4) | Q(situacion__isnull=True))
+            .count()
+        )
+
+        # Calcular tiempo promedio de resolución (días desde publicación hasta resolución)
+        publicaciones_resueltas_qs = publicaciones_junta.exclude(
+            Q(situacion_id=4) | Q(situacion__isnull=True)
+        )
+
+        tiempo_promedio_resolucion = 0
+        if publicaciones_resueltas_qs.exists():
+            # Para este ejemplo, usamos la fecha de la respuesta municipal más reciente
+            # En un caso real, necesitarías un campo de fecha_resolucion en el modelo
+            dias_resolucion = []
+
+            for pub in publicaciones_resueltas_qs:
+                # Buscar la respuesta municipal asociada para obtener fecha de resolución
+                respuesta = RespuestaMunicipal.objects.filter(publicacion=pub).first()
+                if respuesta:
+                    dias = (respuesta.fecha - pub.fecha_publicacion).days
+                    if (
+                        dias >= 0
+                    ):  # Solo contar si la resolución fue después de la publicación
+                        dias_resolucion.append(dias)
+
+            tiempo_promedio_resolucion = (
+                sum(dias_resolucion) // len(dias_resolucion) if dias_resolucion else 0
+            )
+
+        # Obtener la última resolución de esta junta
+        ultima_respuesta = (
+            RespuestaMunicipal.objects.filter(publicacion__junta_vecinal=junta)
+            .order_by("-fecha")
+            .first()
+        )
+        fecha_ultima_resolucion = ultima_respuesta.fecha if ultima_respuesta else None
+
+        # Calcular intensidad de frío (eficiencia normalizada)
+        intensidad_frio = eficiencia / 100  # Normalizar a 0-1
+
+        # Obtener recuento por categoría (solo resueltas)
+        categorias_conteo = (
+            publicaciones_resueltas_qs.values("categoria__nombre")
+            .annotate(conteo=Count("id"))
+            .order_by("-conteo")
+        )
+
+        # Construir el resultado para esta junta
+        junta_data = {
+            "Junta_Vecinal": {
+                "latitud": junta.latitud,
+                "longitud": junta.longitud,
+                "nombre": junta.nombre_junta
+                or f"{junta.nombre_calle} {junta.numero_calle}",
+                "total_publicaciones": total_junta,
+                "total_resueltas": publicaciones_resueltas,
+                "intensidad_frio": round(intensidad_frio, 2),
+                "eficiencia": round(eficiencia, 2),
+                "casos_alta_prioridad_resueltos": casos_alta_prioridad_resueltos,
+                "intensidad": (
+                    total_junta / total_publicaciones if total_publicaciones > 0 else 0
+                ),
+            },
+            "tiempo_promedio_resolucion": f"{tiempo_promedio_resolucion} días",
+            "ultima_resolucion": (
+                fecha_ultima_resolucion.isoformat() if fecha_ultima_resolucion else None
+            ),
+        }
+
+        # Agregar categorías dinámicamente (solo resueltas)
+        for categoria in categorias_conteo:
+            junta_data[categoria["categoria__nombre"]] = categoria["conteo"]
+
+        datos.append(junta_data)
+
+    # Ordenar por eficiencia (mayor a menor)
+    datos.sort(key=lambda x: x["Junta_Vecinal"]["eficiencia"], reverse=True)
+
+    return Response(datos, status=200)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def junta_mas_eficiente(request):
+    """
+    Endpoint para obtener la junta vecinal más eficiente y estadísticas de eficiencia
+    - Eficiencia basada en porcentaje de publicaciones resueltas
+    - Considera tiempo de resolución y casos de alta prioridad resueltos
+    """
+    # Aplicar el filtro a las publicaciones
+    publicaciones = Publicacion.objects.all()
+    filterset = PublicacionFilter(request.GET, queryset=publicaciones)
+
+    if not filterset.is_valid():
+        return Response(
+            {"error": "Filtros inválidos", "detalles": filterset.errors},
+            status=400,
+        )
+
+    publicaciones_filtradas = filterset.qs
+    juntas_eficiencia = []
+
+    for junta in JuntaVecinal.objects.all():
+        publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
+        total_junta = publicaciones_junta.count()
+
+        if total_junta == 0:
+            continue
+
+        # Calcular métricas de eficiencia
+        publicaciones_resueltas = publicaciones_junta.exclude(
+            Q(situacion_id=4) | Q(situacion__isnull=True)
+        ).count()
+
+        casos_alta_prioridad_resueltos = (
+            publicaciones_junta.filter(prioridad="alta")
+            .exclude(Q(situacion_id=4) | Q(situacion__isnull=True))
+            .count()
+        )
+
+        casos_alta_prioridad_total = publicaciones_junta.filter(
+            prioridad="alta"
+        ).count()
+
+        # Tiempo promedio de resolución
+        publicaciones_resueltas_qs = publicaciones_junta.exclude(
+            Q(situacion_id=4) | Q(situacion__isnull=True)
+        )
+
+        tiempo_promedio_resolucion = 0
+        if publicaciones_resueltas_qs.exists():
+            dias_resolucion = []
+            for pub in publicaciones_resueltas_qs:
+                respuesta = RespuestaMunicipal.objects.filter(publicacion=pub).first()
+                if respuesta:
+                    dias = (respuesta.fecha - pub.fecha_publicacion).days
+                    if dias >= 0:
+                        dias_resolucion.append(dias)
+            tiempo_promedio_resolucion = (
+                sum(dias_resolucion) // len(dias_resolucion) if dias_resolucion else 0
+            )
+
+        # Calcular índice de eficiencia
+        porcentaje_resueltas = (
+            (publicaciones_resueltas / total_junta) * 100 if total_junta > 0 else 0
+        )
+        porcentaje_alta_prioridad_resueltas = (
+            (casos_alta_prioridad_resueltos / casos_alta_prioridad_total) * 100
+            if casos_alta_prioridad_total > 0
+            else 0
+        )
+
+        # Factor de velocidad (menor tiempo = mayor eficiencia)
+        # Normalizar a 60 días máximo, invertir para que menos días = más eficiencia
+        factor_velocidad = (
+            max(0, (60 - tiempo_promedio_resolucion) / 60) * 100
+            if tiempo_promedio_resolucion > 0
+            else 100
+        )
+
+        # Factor de volumen (más publicaciones resueltas = más eficiente)
+        factor_volumen = min(publicaciones_resueltas / 20, 1) * 100
+
+        # Calcular índice de eficiencia (0-100, mayor = más eficiente)
+        indice_eficiencia = (
+            (porcentaje_resueltas * 0.4)
+            + (porcentaje_alta_prioridad_resueltas * 0.3)
+            + (factor_velocidad * 0.2)
+            + (factor_volumen * 0.1)
+        )
+
+        # Solo incluir juntas con publicaciones resueltas
+        if publicaciones_resueltas > 0:
+            juntas_eficiencia.append(
+                {
+                    "junta": {
+                        "id": junta.id,
+                        "nombre": junta.nombre_junta
+                        or f"{junta.nombre_calle} {junta.numero_calle}",
+                        "latitud": junta.latitud,
+                        "longitud": junta.longitud,
+                    },
+                    "metricas": {
+                        "total_publicaciones": total_junta,
+                        "publicaciones_resueltas": publicaciones_resueltas,
+                        "casos_alta_prioridad_resueltos": casos_alta_prioridad_resueltos,
+                        "casos_alta_prioridad_total": casos_alta_prioridad_total,
+                        "tiempo_promedio_resolucion": tiempo_promedio_resolucion,
+                        "porcentaje_resueltas": round(porcentaje_resueltas, 2),
+                        "porcentaje_alta_prioridad_resueltas": round(
+                            porcentaje_alta_prioridad_resueltas, 2
+                        ),
+                        "factor_velocidad": round(factor_velocidad, 2),
+                        "indice_eficiencia": round(indice_eficiencia, 2),
+                    },
+                }
+            )
+
+    # Ordenar por índice de eficiencia (mayor a menor)
+    juntas_eficiencia.sort(
+        key=lambda x: x["metricas"]["indice_eficiencia"], reverse=True
+    )
+
+    # Estadísticas generales
+    estadisticas = {
+        "total_juntas_analizadas": len(juntas_eficiencia),
+        "junta_mas_eficiente": juntas_eficiencia[0] if juntas_eficiencia else None,
+        "top_5_eficientes": juntas_eficiencia[:5],
+        "promedio_eficiencia": (
+            round(
+                sum(j["metricas"]["indice_eficiencia"] for j in juntas_eficiencia)
+                / len(juntas_eficiencia),
+                2,
+            )
+            if juntas_eficiencia
+            else 0
+        ),
+        "promedio_tiempo_resolucion": (
+            round(
+                sum(
+                    j["metricas"]["tiempo_promedio_resolucion"]
+                    for j in juntas_eficiencia
+                )
+                / len(juntas_eficiencia),
+                2,
+            )
+            if juntas_eficiencia
+            else 0
+        ),
+        "criterios_calculo": {
+            "porcentaje_resueltas": "40% del índice",
+            "porcentaje_alta_prioridad_resueltas": "30% del índice",
+            "factor_velocidad": "20% del índice (60 días máximo, menos tiempo = más eficiencia)",
+            "factor_volumen": "10% del índice (20 publicaciones resueltas máximo)",
+            "rango_indice": "0-100 (mayor = más eficiente)",
+        },
+    }
+
+    return Response(estadisticas, status=200)
 
 
 class UsuariosViewSet(viewsets.ModelViewSet):
@@ -509,6 +989,151 @@ class RegistroUsuarioView(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def verificar_usuario_existente(request):
+    """
+    Endpoint optimizado para verificar si un usuario ya existe por RUT o email
+    """
+    try:
+        rut = request.data.get("rut")
+        email = request.data.get("email")
+
+        if not rut and not email:
+            return Response(
+                {"error": "Se requiere RUT o email para la verificación"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        response_data = {}
+
+        if rut:
+            # Normalizar RUT para búsqueda (remover puntos y guiones)
+            rut_normalizado = rut.replace(".", "").replace("-", "")
+
+            # Buscar tanto en formato normalizado como con guión
+            usuario_rut = Usuario.objects.filter(
+                Q(rut=rut_normalizado)
+                | Q(rut=rut)
+                | Q(
+                    rut__in=[
+                        rut,  # Formato original del frontend
+                        rut_normalizado,  # Sin puntos ni guiones
+                        f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}",  # Con guión al final
+                    ]
+                )
+            ).first()
+            response_data["rut_disponible"] = usuario_rut is None
+            if usuario_rut:
+                response_data["usuario_rut"] = {
+                    "id": usuario_rut.id,
+                    "nombre": usuario_rut.nombre,
+                    "email": usuario_rut.email,
+                    "tipo_usuario": usuario_rut.get_tipo_usuario_display(),
+                    "esta_activo": usuario_rut.esta_activo,
+                }
+
+        if email:
+            usuario_email = Usuario.objects.filter(email__iexact=email).first()
+            response_data["email_disponible"] = usuario_email is None
+            if usuario_email:
+                response_data["usuario_email"] = {
+                    "id": usuario_email.id,
+                    "nombre": usuario_email.nombre,
+                    "rut": usuario_email.rut,
+                    "tipo_usuario": usuario_email.get_tipo_usuario_display(),
+                    "esta_activo": usuario_email.esta_activo,
+                }
+
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"error": f"Error al verificar usuario: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["POST"])
+@permission_classes([IsAdmin])
+def verificar_disponibilidad_batch(request):
+    """
+    Endpoint para verificar múltiples usuarios de una vez (útil para importaciones masivas)
+    """
+    try:
+        usuarios_data = request.data.get("usuarios", [])
+
+        if not usuarios_data or not isinstance(usuarios_data, list):
+            return Response(
+                {"error": "Se requiere una lista de usuarios para verificar"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resultados = []
+
+        for idx, usuario_data in enumerate(usuarios_data):
+            rut = usuario_data.get("rut")
+            email = usuario_data.get("email")
+
+            resultado = {
+                "indice": idx,
+                "rut": rut,
+                "email": email,
+                "disponible": True,
+                "conflictos": [],
+            }
+
+            if rut:
+                rut_normalizado = rut.replace(".", "").replace("-", "")
+                # Buscar en múltiples formatos
+                if Usuario.objects.filter(
+                    Q(rut=rut_normalizado)
+                    | Q(rut=rut)
+                    | Q(
+                        rut__in=[
+                            rut,
+                            rut_normalizado,
+                            f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}",
+                        ]
+                    )
+                ).exists():
+                    resultado["disponible"] = False
+                    resultado["conflictos"].append("rut_existente")
+
+            if email:
+                if Usuario.objects.filter(email__iexact=email).exists():
+                    resultado["disponible"] = False
+                    resultado["conflictos"].append("email_existente")
+
+            resultados.append(resultado)
+
+        # Estadísticas del lote
+        total = len(resultados)
+        disponibles = len([r for r in resultados if r["disponible"]])
+        conflictos = total - disponibles
+
+        return Response(
+            {
+                "resultados": resultados,
+                "estadisticas": {
+                    "total": total,
+                    "disponibles": disponibles,
+                    "conflictos": conflictos,
+                    "porcentaje_disponibilidad": (
+                        round((disponibles / total) * 100, 2) if total > 0 else 0
+                    ),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    except Exception as e:
+        return Response(
+            {"error": f"Error al verificar lote de usuarios: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 class CategoriasViewSet(viewsets.ModelViewSet):

@@ -34,6 +34,12 @@ from .views.v1 import (
     estadisticas_kanban,
     estadisticas_respuestas,
     estadisticas_gestion_datos,
+    # Nuevos endpoints de verificación
+    verificar_usuario_existente,
+    verificar_disponibilidad_batch,
+    junta_mas_critica,
+    publicaciones_resueltas_por_junta_vecinal,
+    junta_mas_eficiente,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -95,6 +101,15 @@ urlpatterns = [
     path("v1/token/", CustomTokenObtainPairView.as_view(), name="token_refresh"),
     path("v1/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("v1/registro/", RegistroUsuarioView.as_view(), name="registro"),
+    # Nuevos endpoints de verificación de usuarios
+    path(
+        "v1/verificar-usuario/", verificar_usuario_existente, name="verificar_usuario"
+    ),
+    path(
+        "v1/verificar-lote-usuarios/",
+        verificar_disponibilidad_batch,
+        name="verificar_lote_usuarios",
+    ),
     path(
         "v1/publicaciones-por-mes-y-categoria/", PublicacionesPorMesyCategoria.as_view()
     ),
@@ -113,4 +128,11 @@ urlpatterns = [
     path("v1/estadisticas-kanban/", estadisticas_kanban),
     path("v1/estadisticas-respuestas/", estadisticas_respuestas),
     path("v1/estadisticas-gestion-datos/", estadisticas_gestion_datos),
+    path("v1/junta-mas-critica/", junta_mas_critica, name="junta_mas_critica"),
+    path(
+        "v1/publicaciones-resueltas-por-junta-vecinal/",
+        publicaciones_resueltas_por_junta_vecinal,
+        name="publicaciones_resueltas_por_junta_vecinal",
+    ),
+    path("v1/junta-mas-eficiente/", junta_mas_eficiente, name="junta_mas_eficiente"),
 ]

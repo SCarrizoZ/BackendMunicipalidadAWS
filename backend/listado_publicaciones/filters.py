@@ -20,6 +20,10 @@ class PublicacionFilter(django_filters.FilterSet):
         method="filter_situacion_publicacion",
         label="Situacion Publicacion",
     )
+    usuario_id = django_filters.CharFilter(
+        method="filter_usuario_id",
+        label="Usuario ID",
+    )
     fecha_publicacion = (
         django_filters.DateFromToRangeFilter()
     )  # Filtro de rango de fechas
@@ -68,6 +72,23 @@ class PublicacionFilter(django_filters.FilterSet):
             return queryset.filter(query)
         return queryset
 
+    def filter_usuario_id(self, queryset, name, value):
+        if value:
+            # Dividimos los valores en caso de que lleguen como una cadena
+            usuario_id_list = value.split(",")
+            # Creamos una Q para filtrar usando OR
+            query = Q()
+            for usuario_id in usuario_id_list:
+                try:
+                    # Validamos que sea un ID válido (entero)
+                    usuario_id_int = int(usuario_id.strip())
+                    query |= Q(usuario_id=usuario_id_int)
+                except ValueError:
+                    # Si no es un entero válido, lo ignoramos
+                    continue
+            return queryset.filter(query) if query.children else queryset
+        return queryset
+
     class Meta:
         model = Publicacion
         fields = [
@@ -75,6 +96,7 @@ class PublicacionFilter(django_filters.FilterSet):
             "departamento",
             "categoria",
             "situacion",
+            "usuario_id",
             "fecha_publicacion",
         ]
 

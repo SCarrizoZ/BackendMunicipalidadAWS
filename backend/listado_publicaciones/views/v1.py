@@ -353,26 +353,6 @@ class ResueltosPorMes(APIView):
 
 
 # Tasa de resolución según departamento y según mes
-"""
-Formato de respuesta esperado:
-[
-    "Depto": {
-        "Ene": {
-            "total": 10,
-            "resueltos": 8,
-            "tasa_resolucion": 0.8
-        },
-        "Feb": {
-            "total": 15,
-            "resueltos": 10,
-            "tasa_resolucion": 0.67
-        }
-    },
-    "Depto2": {}
-]
-"""
-
-
 class TasaResolucionDepartamento(APIView):
     def get(self, request):
         # Aplicar filtros usando PublicacionFilter
@@ -1052,86 +1032,6 @@ def verificar_usuario_existente(request):
     except Exception as e:
         return Response(
             {"error": f"Error al verificar usuario: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
-
-
-@api_view(["POST"])
-@permission_classes([IsAdmin])
-def verificar_disponibilidad_batch(request):
-    """
-    Endpoint para verificar múltiples usuarios de una vez (útil para importaciones masivas)
-    """
-    try:
-        usuarios_data = request.data.get("usuarios", [])
-
-        if not usuarios_data or not isinstance(usuarios_data, list):
-            return Response(
-                {"error": "Se requiere una lista de usuarios para verificar"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        resultados = []
-
-        for idx, usuario_data in enumerate(usuarios_data):
-            rut = usuario_data.get("rut")
-            email = usuario_data.get("email")
-
-            resultado = {
-                "indice": idx,
-                "rut": rut,
-                "email": email,
-                "disponible": True,
-                "conflictos": [],
-            }
-
-            if rut:
-                rut_normalizado = rut.replace(".", "").replace("-", "")
-                # Buscar en múltiples formatos
-                if Usuario.objects.filter(
-                    Q(rut=rut_normalizado)
-                    | Q(rut=rut)
-                    | Q(
-                        rut__in=[
-                            rut,
-                            rut_normalizado,
-                            f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}",
-                        ]
-                    )
-                ).exists():
-                    resultado["disponible"] = False
-                    resultado["conflictos"].append("rut_existente")
-
-            if email:
-                if Usuario.objects.filter(email__iexact=email).exists():
-                    resultado["disponible"] = False
-                    resultado["conflictos"].append("email_existente")
-
-            resultados.append(resultado)
-
-        # Estadísticas del lote
-        total = len(resultados)
-        disponibles = len([r for r in resultados if r["disponible"]])
-        conflictos = total - disponibles
-
-        return Response(
-            {
-                "resultados": resultados,
-                "estadisticas": {
-                    "total": total,
-                    "disponibles": disponibles,
-                    "conflictos": conflictos,
-                    "porcentaje_disponibilidad": (
-                        round((disponibles / total) * 100, 2) if total > 0 else 0
-                    ),
-                },
-            },
-            status=status.HTTP_200_OK,
-        )
-
-    except Exception as e:
-        return Response(
-            {"error": f"Error al verificar lote de usuarios: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -2140,30 +2040,6 @@ def crear_historial_modificacion(
         )
     except Exception as e:
         print(f"Error al crear historial: {e}")
-
-
-"""
-Endpoint para resumen de estadísticas para la gestión de datos (Juntas Vecinales, Categorías y Departamentos Municipales)
-Ejemplo de respuesta:
-const estadisticas = {
-  juntasVecinales: {
-    total: 45,
-    habilitados: 38,
-    pendientes: 5,
-    deshabilitado: 2,
-  },
-  categorias: {
-    total: 12,
-    habilitados: 10,
-    deshabilitados: 2,
-  },
-  departamentos: {
-    total: 8,
-    habilitados: 7,
-    deshabilitados: 1,
-  },
-}
-"""
 
 
 @api_view(["GET"])

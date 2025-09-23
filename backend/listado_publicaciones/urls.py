@@ -36,6 +36,7 @@ from .views.v1 import (
     estadisticas_gestion_datos,
     # Nuevos endpoints de verificación
     verificar_usuario_existente,
+    logout_view,
     junta_mas_critica,
     publicaciones_resueltas_por_junta_vecinal,
     junta_mas_eficiente,
@@ -104,6 +105,7 @@ urlpatterns = [
     path(
         "v1/verificar-usuario/", verificar_usuario_existente, name="verificar_usuario"
     ),
+    path("v1/logout/", logout_view, name="logout"),
     path(
         "v1/publicaciones-por-mes-y-categoria/", PublicacionesPorMesyCategoria.as_view()
     ),

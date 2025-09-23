@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.db.models import Q
+import math
 from ..models import (
     Usuario,
     Categoria,
@@ -22,6 +23,55 @@ from ..models import (
 )
 import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+
+def calcular_distancia_haversine(lat1, lon1, lat2, lon2):
+    """
+    Calcula la distancia entre dos puntos geográficos usando la fórmula de Haversine.
+    Retorna la distancia en kilómetros.
+    """
+    # Convertir grados a radianes
+    lat1, lon1, lat2, lon2 = map(
+        math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)]
+    )
+
+    # Fórmula de Haversine
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    )
+    c = 2 * math.asin(math.sqrt(a))
+
+    # Radio de la Tierra en kilómetros
+    r = 6371
+    return c * r
+
+
+def encontrar_junta_vecinal_mas_cercana(latitud, longitud):
+    """
+    Encuentra la junta vecinal más cercana a las coordenadas dadas.
+    Retorna la instancia de JuntaVecinal más cercana.
+    """
+    juntas_vecinales = JuntaVecinal.objects.filter(estado="habilitado")
+
+    if not juntas_vecinales.exists():
+        return None
+
+    distancia_minima = float("inf")
+    junta_mas_cercana = None
+
+    for junta in juntas_vecinales:
+        distancia = calcular_distancia_haversine(
+            latitud, longitud, junta.latitud, junta.longitud
+        )
+
+        if distancia < distancia_minima:
+            distancia_minima = distancia
+            junta_mas_cercana = junta
+
+    return junta_mas_cercana
 
 
 # Serializer para Usuario
@@ -400,6 +450,19 @@ class PublicacionListSerializer(serializers.ModelSerializer):
 
 
 class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
+    junta_vecinal = serializers.PrimaryKeyRelatedField(
+        queryset=JuntaVecinal.objects.filter(estado="habilitado"),
+        required=False,
+        allow_null=True,
+    )
+    auto_detectar_junta = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        help_text="Si es True, detecta automáticamente la junta vecinal más cercana basada en latitud y longitud",
+    )
+    junta_vecinal_info = serializers.SerializerMethodField(read_only=True)
+    distancia_a_junta_km = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Publicacion
         fields = [
@@ -419,7 +482,183 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
             "latitud",
             "longitud",
             "prioridad",
+            "auto_detectar_junta",
+            "junta_vecinal_info",
+            "distancia_a_junta_km",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # Si es una actualización (instance existe), hacer campos opcionales
+        if self.instance:
+            self.fields["latitud"].required = False
+            self.fields["longitud"].required = False
+            # Por defecto, no auto-detectar en actualizaciones
+            self.fields["auto_detectar_junta"].default = False
+        else:
+            # Si es creación, requerir coordenadas
+            self.fields["latitud"].required = True
+            self.fields["longitud"].required = True
+            # Por defecto, auto-detectar en creaciones
+            self.fields["auto_detectar_junta"].default = True
+
+    def validate(self, data):
+        """
+        Validación personalizada para auto-detectar junta vecinal si es necesario.
+        """
+        auto_detectar = data.get(
+            "auto_detectar_junta", self.fields["auto_detectar_junta"].default
+        )
+
+        # Si es creación, siempre requerir coordenadas
+        if not self.instance:
+            latitud = data.get("latitud")
+            longitud = data.get("longitud")
+
+            if not latitud or not longitud:
+                raise serializers.ValidationError(
+                    {
+                        "latitud": "La latitud es requerida para crear una publicación.",
+                        "longitud": "La longitud es requerida para crear una publicación.",
+                    }
+                )
+
+            # Auto-detección para creación
+            if auto_detectar and not data.get("junta_vecinal"):
+                junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(
+                    latitud, longitud
+                )
+                if junta_mas_cercana:
+                    data["junta_vecinal"] = junta_mas_cercana
+                else:
+                    raise serializers.ValidationError(
+                        {
+                            "junta_vecinal": "No se pudo encontrar una junta vecinal cercana. "
+                            "Por favor, seleccione una manualmente o verifique las coordenadas."
+                        }
+                    )
+            elif not data.get("junta_vecinal") and not auto_detectar:
+                raise serializers.ValidationError(
+                    {
+                        "junta_vecinal": "Debe proporcionar una junta vecinal o habilitar la detección automática."
+                    }
+                )
+
+        # Si es actualización y quiere auto-detectar, validar coordenadas
+        elif auto_detectar:
+            latitud = data.get("latitud") or self.instance.latitud
+            longitud = data.get("longitud") or self.instance.longitud
+
+            if not latitud or not longitud:
+                raise serializers.ValidationError(
+                    {
+                        "coordenadas": "Se requieren coordenadas válidas (latitud y longitud) para auto-detectar junta vecinal."
+                    }
+                )
+
+            # Auto-detección para actualización
+            junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(latitud, longitud)
+            if junta_mas_cercana:
+                data["junta_vecinal"] = junta_mas_cercana
+            else:
+                raise serializers.ValidationError(
+                    {
+                        "junta_vecinal": "No se pudo encontrar una junta vecinal cercana con las coordenadas proporcionadas."
+                    }
+                )
+
+        # Remover el campo auto_detectar_junta antes de guardar
+        data.pop("auto_detectar_junta", None)
+
+        return data
+
+    def create(self, validated_data):
+        """Crear publicación con auditoría implícita del auto-detect"""
+        instance = super().create(validated_data)
+
+        # Calcular y almacenar distancia para la respuesta
+        if instance.junta_vecinal:
+            try:
+                distancia = calcular_distancia_haversine(
+                    instance.latitud,
+                    instance.longitud,
+                    instance.junta_vecinal.latitud,
+                    instance.junta_vecinal.longitud,
+                )
+                instance._distancia_calculada = distancia
+            except Exception:
+                instance._distancia_calculada = None
+
+        return instance
+
+    def update(self, instance, validated_data):
+        """Actualizar publicación manteniendo lógica de auto-detección"""
+        updated_instance = super().update(instance, validated_data)
+
+        # Calcular y almacenar distancia para la respuesta
+        if updated_instance.junta_vecinal:
+            try:
+                distancia = calcular_distancia_haversine(
+                    updated_instance.latitud,
+                    updated_instance.longitud,
+                    updated_instance.junta_vecinal.latitud,
+                    updated_instance.junta_vecinal.longitud,
+                )
+                updated_instance._distancia_calculada = distancia
+            except Exception:
+                updated_instance._distancia_calculada = None
+
+        return updated_instance
+
+    def get_junta_vecinal_info(self, obj):
+        """Información detallada de la junta vecinal asignada"""
+        if obj.junta_vecinal:
+            distancia = self.get_distancia_a_junta_km(obj)
+            return {
+                "id": obj.junta_vecinal.id,
+                "nombre_junta": obj.junta_vecinal.nombre_junta,
+                "direccion": f"{obj.junta_vecinal.nombre_calle} {obj.junta_vecinal.numero_calle}",
+                "distancia_aproximada": distancia,
+            }
+        return None
+
+    def get_distancia_a_junta_km(self, obj):
+        """Calcula la distancia a la junta vecinal asignada"""
+        # Si ya se calculó en create/update, usar ese valor
+        if hasattr(obj, "_distancia_calculada"):
+            return (
+                round(obj._distancia_calculada, 2) if obj._distancia_calculada else None
+            )
+
+        # Calcular si no existe
+        if obj.junta_vecinal and obj.latitud and obj.longitud:
+            try:
+                distancia = calcular_distancia_haversine(
+                    obj.latitud,
+                    obj.longitud,
+                    obj.junta_vecinal.latitud,
+                    obj.junta_vecinal.longitud,
+                )
+                return round(distancia, 2)
+            except Exception:
+                return None
+        return None
+
+    def to_representation(self, instance):
+        """
+        Personalizar la representación para incluir información adicional.
+        """
+        representation = super().to_representation(instance)
+
+        # Asegurar que junta_vecinal_info y distancia estén disponibles
+        if instance.junta_vecinal and not representation.get("junta_vecinal_info"):
+            representation["junta_vecinal_info"] = self.get_junta_vecinal_info(instance)
+            representation["distancia_a_junta_km"] = self.get_distancia_a_junta_km(
+                instance
+            )
+
+        return representation
 
 
 # Serializer para Imagen Anuncio

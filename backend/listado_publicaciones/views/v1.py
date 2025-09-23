@@ -112,6 +112,51 @@ meses_espanol = {
 
 
 # Create your views here.
+class AuditMixin:
+    """Mixin para agregar auditoría automática a ViewSets"""
+
+    def get_audit_module_name(self):
+        """Override este método para personalizar el nombre del módulo"""
+        return self.__class__.__name__.replace("ViewSet", "")
+
+    def get_audit_object_name(self, instance):
+        """Override este método para personalizar cómo se identifica el objeto"""
+        return getattr(
+            instance, "titulo", getattr(instance, "nombre", f"ID: {instance.id}")
+        )
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="CREATE",
+            modulo=self.get_audit_module_name(),
+            descripcion=f"Creado {self.get_audit_module_name()}: {self.get_audit_object_name(instance)}",
+            es_exitoso=True,
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="UPDATE",
+            modulo=self.get_audit_module_name(),
+            descripcion=f"Actualizado {self.get_audit_module_name()}: {self.get_audit_object_name(instance)}",
+            es_exitoso=True,
+        )
+
+    def perform_destroy(self, instance):
+        nombre = self.get_audit_object_name(instance)
+        instance.delete()
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="DELETE",
+            modulo=self.get_audit_module_name(),
+            descripcion=f"Eliminado {self.get_audit_module_name()}: {nombre}",
+            es_exitoso=True,
+        )
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
@@ -127,10 +172,43 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                     usuario = Usuario.objects.get(rut=rut)
                     usuario.ultimo_acceso = timezone.now()
                     usuario.save(update_fields=["ultimo_acceso"])
+
+                    # Auditoría de LOGIN exitoso
+                    crear_auditoria(
+                        usuario=usuario,
+                        accion="LOGIN",
+                        modulo="Autenticación",
+                        descripcion=f"Inicio de sesión exitoso desde IP: {self.get_client_ip(request)}",
+                        es_exitoso=True,
+                    )
             except Usuario.DoesNotExist:
                 pass  # No hacer nada si el usuario no existe
+        else:
+            # Auditoría de LOGIN fallido
+            rut = request.data.get("rut", "Desconocido")
+            try:
+                usuario = Usuario.objects.get(rut=rut)
+                crear_auditoria(
+                    usuario=usuario,
+                    accion="LOGIN",
+                    modulo="Autenticación",
+                    descripcion=f"Intento de inicio de sesión fallido desde IP: {self.get_client_ip(request)}",
+                    es_exitoso=False,
+                )
+            except Usuario.DoesNotExist:
+                # Para usuarios que no existen, no crear auditoría específica
+                pass
 
         return response
+
+    def get_client_ip(self, request):
+        """Obtener IP del cliente"""
+        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(",")[0]
+        else:
+            ip = request.META.get("REMOTE_ADDR")
+        return ip
 
 
 class PublicacionViewSet(viewsets.ModelViewSet):
@@ -146,8 +224,95 @@ class PublicacionViewSet(viewsets.ModelViewSet):
             return PublicacionListSerializer
         return PublicacionCreateUpdateSerializer
 
+    """
+    No considerado ya que registra las acciones de los vecinos y el enfoque debe estar en los funcionarios.
+    Consultar con el cliente
 
-class AnunciosMunicipalesViewSet(viewsets.ModelViewSet):
+    def perform_create(self, serializer):
+        Auditoría para creación de publicaciones
+        instance = serializer.save()
+
+        # Crear auditoría
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="CREATE",
+            modulo="Publicaciones",
+            descripcion=f"Creada publicación: {instance.titulo} (ID: {instance.id})",
+            es_exitoso=True,
+        )
+
+    """
+
+    def perform_update(self, serializer):
+        """Auditoría para actualización de publicaciones"""
+        instance = serializer.instance
+        old_data = {
+            "titulo": instance.titulo,
+            "descripcion": instance.descripcion,
+            "prioridad": instance.prioridad,
+            "situacion_id": instance.situacion_id if instance.situacion else None,
+            "encargado_id": instance.encargado_id if instance.encargado else None,
+        }
+
+        # Guardar cambios
+        updated_instance = serializer.save()
+
+        # Crear historial de modificaciones para campos específicos
+        for field, old_value in old_data.items():
+            new_value = getattr(updated_instance, field)
+            if old_value != new_value:
+                crear_historial_modificacion(
+                    publicacion=updated_instance,
+                    campo=field,
+                    valor_anterior=old_value,
+                    valor_nuevo=new_value,
+                    autor=self.request.user,
+                )
+
+        # Crear auditoría
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="UPDATE",
+            modulo="Publicaciones",
+            descripcion=f"Actualizada publicación: {updated_instance.titulo} (ID: {updated_instance.id})",
+            es_exitoso=True,
+        )
+
+    def perform_destroy(self, instance):
+        """Auditoría para eliminación de publicaciones"""
+        titulo = instance.titulo
+        publicacion_id = instance.id
+
+        # Eliminar la instancia
+        instance.delete()
+
+        # Crear auditoría
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="DELETE",
+            modulo="Publicaciones",
+            descripcion=f"Eliminada publicación: {titulo} (ID: {publicacion_id})",
+            es_exitoso=True,
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        """Auditar consulta de publicación específica"""
+        response = super().retrieve(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            publicacion_id = kwargs.get("pk", "N/A")
+            crear_auditoria(
+                usuario=request.user,
+                accion="READ",
+                modulo="Publicaciones",
+                descripcion=f"Consultó publicación ID: {publicacion_id}",
+                es_exitoso=True,
+            )
+
+        return response
+
+
+class AnunciosMunicipalesViewSet(AuditMixin, viewsets.ModelViewSet):
     queryset = AnuncioMunicipal.objects.all().order_by("-fecha")
     pagination_class = DynamicPageNumberPagination
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -165,6 +330,40 @@ class AnunciosMunicipalesViewSet(viewsets.ModelViewSet):
         if self.action in ["list", "retrieve"]:
             return AnuncioMunicipalListSerializer
         return AnuncioMunicipalCreateUpdateSerializer
+
+    def get_audit_object_name(self, instance):
+        return f"{instance.titulo} (ID: {instance.id})"
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="CREATE",
+            modulo="Anuncios Municipales",
+            descripcion=f"Creado anuncio: {self.get_audit_object_name(instance)}",
+            es_exitoso=True,
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="UPDATE",
+            modulo="Anuncios Municipales",
+            descripcion=f"Actualizado anuncio: {self.get_audit_object_name(instance)}",
+            es_exitoso=True,
+        )
+
+    def perform_destroy(self, instance):
+        nombre = self.get_audit_object_name(instance)
+        instance.delete()
+        crear_auditoria(
+            usuario=self.request.user,
+            accion="DELETE",
+            modulo="Anuncios Municipales",
+            descripcion=f"Eliminado anuncio: {nombre}",
+            es_exitoso=True,
+        )
 
 
 @api_view(["GET"])
@@ -942,7 +1141,7 @@ def junta_mas_eficiente(request):
     return Response(estadisticas, status=200)
 
 
-class UsuariosViewSet(viewsets.ModelViewSet):
+class UsuariosViewSet(AuditMixin, viewsets.ModelViewSet):
     queryset = Usuario.objects.all().order_by("-fecha_registro")
     filterset_class = UsuarioRolFilter
     filter_backends = (DjangoFilterBackend,)
@@ -958,6 +1157,12 @@ class UsuariosViewSet(viewsets.ModelViewSet):
         if self.action in ["list", "retrieve"]:
             return UsuarioListSerializer
         return UsuarioSerializer
+
+    def get_audit_module_name(self):
+        return "Usuarios"
+
+    def get_audit_object_name(self, instance):
+        return f"{instance.nombre} (ID: {instance.id})"
 
 
 class RegistroUsuarioView(APIView):
@@ -1036,7 +1241,31 @@ def verificar_usuario_existente(request):
         )
 
 
-class CategoriasViewSet(viewsets.ModelViewSet):
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def logout_view(request):
+    """Endpoint para cerrar sesión con auditoría"""
+    try:
+        # Crear auditoría de LOGOUT
+        crear_auditoria(
+            usuario=request.user,
+            accion="LOGOUT",
+            modulo="Autenticación",
+            descripcion=f"Cierre de sesión desde IP: {request.META.get('REMOTE_ADDR', 'Desconocida')}",
+            es_exitoso=True,
+        )
+
+        # En JWT no hay logout real en el servidor, pero podemos registrar la acción
+        return Response({"message": "Logout exitoso"}, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"error": f"Error en logout: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+class CategoriasViewSet(AuditMixin, viewsets.ModelViewSet):
     queryset = Categoria.objects.all().order_by("-fecha_creacion")
 
     def get_permissions(self):
@@ -1051,8 +1280,11 @@ class CategoriasViewSet(viewsets.ModelViewSet):
             return CategoriaSerializer
         return CategoriaCreateUpdateSerializer
 
+    def get_audit_module_name(self):
+        return "Categorías"
 
-class DepartamentosMunicipalesViewSet(viewsets.ModelViewSet):
+
+class DepartamentosMunicipalesViewSet(AuditMixin, viewsets.ModelViewSet):
     queryset = DepartamentoMunicipal.objects.all()
 
     def get_serializer_class(self):
@@ -1066,6 +1298,9 @@ class DepartamentosMunicipalesViewSet(viewsets.ModelViewSet):
         else:
             permission_classes = [IsAdmin]
         return [permission() for permission in permission_classes]
+
+    def get_audit_module_name(self):
+        return "Departamentos Municipales"
 
 
 class EvidenciasViewSet(viewsets.ModelViewSet):
@@ -1105,16 +1340,152 @@ class ImagenesAnunciosViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
 
 
-class JuntasVecinalesViewSet(viewsets.ModelViewSet):
+class JuntasVecinalesViewSet(AuditMixin, viewsets.ModelViewSet):
     queryset = JuntaVecinal.objects.all()
     serializer_class = JuntaVecinalSerializer
 
     def get_permissions(self):
-        if self.action in ["list", "retrieve"]:
+        if self.action in ["list", "retrieve", "mas_cercana", "cercanas"]:
             permission_classes = [IsAuthenticatedOrAdmin]
         else:
             permission_classes = [IsAdmin]
         return [permission() for permission in permission_classes]
+
+    def get_audit_module_name(self):
+        return "Juntas Vecinales"
+
+    @action(detail=False, methods=["get"], url_path="mas-cercana")
+    def mas_cercana(self, request):
+        """
+        Endpoint para obtener la junta vecinal más cercana a unas coordenadas específicas.
+        Parámetros: ?latitud=X&longitud=Y
+        """
+        try:
+            latitud = request.query_params.get("latitud")
+            longitud = request.query_params.get("longitud")
+
+            if not latitud or not longitud:
+                return Response(
+                    {"error": "Se requieren los parámetros latitud y longitud"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Importar la función desde serializers
+            from ..serializers.v1 import (
+                encontrar_junta_vecinal_mas_cercana,
+                calcular_distancia_haversine,
+            )
+
+            junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(
+                float(latitud), float(longitud)
+            )
+
+            if not junta_mas_cercana:
+                return Response(
+                    {"error": "No se encontraron juntas vecinales cercanas"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Calcular la distancia
+            distancia = calcular_distancia_haversine(
+                float(latitud),
+                float(longitud),
+                junta_mas_cercana.latitud,
+                junta_mas_cercana.longitud,
+            )
+
+            serializer = self.get_serializer(junta_mas_cercana)
+            response_data = serializer.data
+            response_data["distancia_km"] = round(distancia, 2)
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except ValueError:
+            return Response(
+                {"error": "Las coordenadas deben ser números válidos"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Error interno: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=["get"], url_path="cercanas")
+    def cercanas(self, request):
+        """
+        Endpoint para obtener las N juntas vecinales más cercanas a unas coordenadas.
+        Parámetros: ?latitud=X&longitud=Y&limite=N (por defecto 5)
+        """
+        try:
+            latitud = request.query_params.get("latitud")
+            longitud = request.query_params.get("longitud")
+            limite = int(request.query_params.get("limite", 5))
+
+            if not latitud or not longitud:
+                return Response(
+                    {"error": "Se requieren los parámetros latitud y longitud"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Importar la función desde serializers
+            from ..serializers.v1 import calcular_distancia_haversine
+
+            lat_float = float(latitud)
+            lon_float = float(longitud)
+
+            # Obtener todas las juntas vecinales habilitadas
+            juntas_vecinales = JuntaVecinal.objects.filter(estado="habilitado")
+
+            if not juntas_vecinales.exists():
+                return Response(
+                    {"error": "No hay juntas vecinales disponibles"},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            # Calcular distancias y ordenar
+            juntas_con_distancia = []
+            for junta in juntas_vecinales:
+                distancia = calcular_distancia_haversine(
+                    lat_float, lon_float, junta.latitud, junta.longitud
+                )
+                juntas_con_distancia.append({"junta": junta, "distancia": distancia})
+
+            # Ordenar por distancia y tomar solo el límite especificado
+            juntas_ordenadas = sorted(
+                juntas_con_distancia, key=lambda x: x["distancia"]
+            )[:limite]
+
+            # Serializar los resultados
+            resultados = []
+            for item in juntas_ordenadas:
+                serializer = self.get_serializer(item["junta"])
+                junta_data = serializer.data
+                junta_data["distancia_km"] = round(item["distancia"], 2)
+                resultados.append(junta_data)
+
+            return Response(
+                {
+                    "total": len(resultados),
+                    "coordenadas_consulta": {
+                        "latitud": lat_float,
+                        "longitud": lon_float,
+                    },
+                    "juntas_cercanas": resultados,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except ValueError:
+            return Response(
+                {"error": "Las coordenadas y límite deben ser números válidos"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as e:
+            return Response(
+                {"error": f"Error interno: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
@@ -1694,8 +2065,42 @@ def generate_pdf_report(request):
         # Finalizar el PDF
         pdf.save()
 
+        # Crear descripción detallada de los filtros aplicados
+        filtros_aplicados = []
+        if departamento:
+            filtros_aplicados.append(f"Departamento: {departamento}")
+
+        # Obtener otros filtros de la query string
+        filtros_query = []
+        for key, value in request.GET.items():
+            if key not in ["comentarios", "departamento_reporte"] and value:
+                filtros_query.append(f"{key}: {value}")
+
+        if filtros_query:
+            filtros_aplicados.extend(filtros_query)
+
+        descripcion_detallada = f"Generación de reporte PDF de publicaciones ({publicaciones_filtradas.count()} registros)"
+        if filtros_aplicados:
+            descripcion_detallada += f" - Filtros: {', '.join(filtros_aplicados)}"
+
+        crear_auditoria(
+            usuario=request.user,
+            accion="GENERAR_REPORTE_PDF",
+            modulo="Reportes",
+            descripcion=descripcion_detallada,
+            es_exitoso=True,
+        )
+
         return response
     except Exception as e:
+        # Registrar error en auditoría
+        crear_auditoria(
+            usuario=request.user,
+            accion="GENERAR_REPORTE_PDF",
+            modulo="Reportes",
+            descripcion=f"Error al generar reporte PDF: {str(e)}",
+            es_exitoso=False,
+        )
         print(e)
         return HttpResponse("Error al generar el PDF", status=500)
 
@@ -2014,6 +2419,21 @@ def estadisticas_respuestas(request):
 def crear_auditoria(usuario, accion, modulo, descripcion, es_exitoso=True):
     """Función auxiliar para crear registros de auditoría"""
     try:
+        # Validar que la acción sea válida
+        acciones_validas = [
+            "CREATE",
+            "READ",
+            "UPDATE",
+            "DELETE",
+            "LOGIN",
+            "LOGOUT",
+            "GENERAR_REPORTE_PDF",
+        ]
+        if accion not in acciones_validas:
+            raise ValueError(
+                f"Acción inválida: {accion}. Debe ser una de: {acciones_validas}"
+            )
+
         Auditoria.objects.create(
             autor=usuario,
             accion=accion,
@@ -2024,6 +2444,10 @@ def crear_auditoria(usuario, accion, modulo, descripcion, es_exitoso=True):
     except Exception as e:
         # Si falla la auditoría, no debe afectar la operación principal
         print(f"Error al crear auditoría: {e}")
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error en auditoría: {e}")
 
 
 def crear_historial_modificacion(
@@ -2034,12 +2458,16 @@ def crear_historial_modificacion(
         HistorialModificaciones.objects.create(
             publicacion=publicacion,
             campo_modificado=campo,
-            valor_anterior=str(valor_anterior),
-            valor_nuevo=str(valor_nuevo),
+            valor_anterior=str(valor_anterior) if valor_anterior is not None else "",
+            valor_nuevo=str(valor_nuevo) if valor_nuevo is not None else "",
             autor=autor,
         )
     except Exception as e:
-        print(f"Error al crear historial: {e}")
+        print(f"Error al crear historial de modificaciones: {e}")
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error en historial de modificaciones: {e}")
 
 
 @api_view(["GET"])

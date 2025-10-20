@@ -35,6 +35,7 @@ from ..serializers.v1 import (
     JuntaVecinalSerializer,
     RespuestaMunicipalCreateUpdateSerializer,
     RespuestaMunicipalListSerializer,
+    RespuestaMunicipalPuntuacionUpdateSerializer,
     SituacionPublicacionSerializer,
     AnuncioMunicipalListSerializer,
     AnuncioMunicipalCreateUpdateSerializer,
@@ -59,7 +60,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 import pandas as pd
 from ..pagination import DynamicPageNumberPagination
 from ..filters import PublicacionFilter, AnuncioMunicipalFilter, UsuarioRolFilter
-from ..permissions import IsAdmin, IsAuthenticatedOrAdmin
+from ..permissions import IsAdmin, IsAuthenticatedOrAdmin, IsPublicationOwner
 from datetime import datetime
 from django.utils import timezone
 from django.db.models import Count, Q, F
@@ -1494,6 +1495,8 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ["list", "retrieve", "por_publicacion"]:
             permission_classes = [IsAuthenticatedOrAdmin]
+        elif self.action == "puntuar":
+            permission_classes = [IsPublicationOwner]
         else:
             permission_classes = [IsAdmin]
         return [permission() for permission in permission_classes]
@@ -1501,6 +1504,8 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action in ["list", "retrieve", "por_publicacion"]:
             return RespuestaMunicipalListSerializer
+        elif self.action == "puntuar":
+            return RespuestaMunicipalPuntuacionUpdateSerializer
         return RespuestaMunicipalCreateUpdateSerializer
 
     @action(
@@ -1522,6 +1527,17 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
             )
 
         serializer = self.get_serializer(respuestas, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=["patch"], url_path="puntuar")
+    def puntuar(self, request, pk=None):
+        """
+        Permite al autor de la publicación original calificar la respuesta municipal.
+        """
+        respuesta = self.get_object()
+        serializer = self.get_serializer(respuesta, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(serializer.data)
 
 

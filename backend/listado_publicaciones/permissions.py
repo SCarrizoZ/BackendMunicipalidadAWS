@@ -42,3 +42,14 @@ class IsDepartmentHead(BasePermission):
         if request.user.is_anonymous:
             return False
         return request.user.is_authenticated and request.user.es_jefe_departamento
+
+
+class IsPublicationOwner(BasePermission):
+    """
+    Permiso para verificar si el usuario es el dueño de la publicación
+    asociada a la respuesta municipal.
+    """
+
+    def has_object_permission(self, request, view, obj):
+        # `obj` en este caso es una instancia de RespuestaMunicipal
+        return obj.publicacion.usuario == request.user

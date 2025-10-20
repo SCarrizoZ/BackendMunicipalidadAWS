@@ -793,6 +793,17 @@ class RespuestaMunicipalListSerializer(serializers.ModelSerializer):
         return "Sin puntuación"
 
 
+class RespuestaMunicipalPuntuacionUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RespuestaMunicipal
+        fields = ["puntuacion"]
+
+    def validate_puntuacion(self, value):
+        if not 1 <= value <= 5:
+            raise serializers.ValidationError("La puntuación debe estar entre 1 y 5.")
+        return value
+
+
 # Serializer para Historial de Modificaciones
 class HistorialModificacionesSerializer(serializers.ModelSerializer):
     publicacion = PublicacionListSerializer(read_only=True)

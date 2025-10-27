@@ -192,6 +192,56 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
         super().save(*args, **kwargs)
 
 
+class DispositivoNotificacion(models.Model):
+    usuario = models.ForeignKey(
+        Usuario,
+        on_delete=models.CASCADE,
+        related_name="dispositivos_notificacion",
+        help_text="Usuario al que pertenece el dispositivo",
+    )
+    token_expo = models.CharField(
+        max_length=255, unique=True, help_text="Token de Expo para notificaciones push"
+    )
+    plataforma = models.CharField(
+        max_length=50,
+        choices=[("ios", "iOS"), ("android", "Android")],
+        help_text="Plataforma del dispositivo (iOS, Android)",
+    )
+    activo = models.BooleanField(
+        default=True,
+        help_text="Indica si el dispositivo está activo para notificaciones",
+    )
+    fecha_registro = models.DateTimeField(
+        default=timezone.now, help_text="Fecha de registro del dispositivo"
+    )
+    ultima_actualizacion = models.DateTimeField(
+        auto_now=True, help_text="Última actualización del dispositivo"
+    )
+
+    class Meta:
+        db_table = "dispositivos_notificacion"
+        verbose_name = "Dispositivo de Notificación"
+        verbose_name_plural = "Dispositivos de Notificación"
+        ordering = ["-ultima_actualizacion"]
+
+        # Un usuario puede tener el mismo token solo una vez
+        unique_together = [["usuario", "token_expo"]]
+
+        # Index para búsquedas rápidas por token
+        indexes = [
+            models.Index(fields=["usuario", "activo"], name="idx_usuario_activo"),
+            models.Index(fields=["token_expo"], name="idx_token_expo"),
+        ]
+
+    def __str__(self):
+        return f"Dispositivo de {self.usuario.nombre} - {self.plataforma} ({self.token_expo[:20]}...)"
+
+    def desactivar(self):
+        """Marca el dispositivo como inactivo"""
+        self.activo = False
+        self.save()
+
+
 class DepartamentoMunicipal(models.Model):
     nombre = models.CharField(max_length=100)
     descripcion = models.CharField(max_length=300, null=True, blank=True)

@@ -21,6 +21,7 @@ from ..models import (
 from ..serializers.v1 import (
     PublicacionListSerializer,
     PublicacionCreateUpdateSerializer,
+    PublicacionConHistorialSerializer,
     UsuarioListSerializer,
     UsuarioSerializer,
     CustomTokenObtainPairSerializer,
@@ -63,7 +64,7 @@ from ..filters import PublicacionFilter, AnuncioMunicipalFilter, UsuarioRolFilte
 from ..permissions import IsAdmin, IsAuthenticatedOrAdmin, IsPublicationOwner
 from datetime import datetime
 from django.utils import timezone
-from django.db.models import Count, Q, F
+from django.db.models import Count, Q, F, Prefetch
 from django.db.models.functions import TruncMonth
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -221,6 +222,8 @@ class PublicacionViewSet(viewsets.ModelViewSet):
     ordering_fields = ["fecha_publicacion"]
 
     def get_serializer_class(self):
+        if self.action == "con_historial":
+            return PublicacionConHistorialSerializer
         if self.action in ["list", "retrieve"]:
             return PublicacionListSerializer
         return PublicacionCreateUpdateSerializer
@@ -311,6 +314,36 @@ class PublicacionViewSet(viewsets.ModelViewSet):
             )
 
         return response
+
+    @action(detail=False, methods=["get"], url_path="con-historial")
+    def con_historial(self, request, *args, **kwargs):
+        """
+        Obtiene un listado de publicaciones con su historial de modificaciones anidado.
+        Permite usar los filtros de PublicacionFilter (ej. ?departamento=1)
+        """
+
+        # Optimización: Pre-cargamos el historial y el autor de cada modificación
+        # para evitar N+1 queries.
+        historial_queryset = HistorialModificaciones.objects.select_related(
+            "autor"
+        ).order_by("-fecha")
+
+        base_queryset = self.get_queryset().prefetch_related(
+            Prefetch("historialmodificaciones_set", queryset=historial_queryset)
+        )
+
+        # Aplicamos los filtros estándar de PublicacionFilter (como ?departamento=... etc.)
+        queryset = self.filter_queryset(base_queryset)
+
+        # Aplicamos paginación
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        # Serializamos la respuesta
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 class AnunciosMunicipalesViewSet(AuditMixin, viewsets.ModelViewSet):

@@ -20,6 +20,7 @@ from ..models import (
     Tarea,
     Comentario,
     Tablero,
+    DispositivoNotificacion,
 )
 import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -217,6 +218,51 @@ class UsuarioSerializer(serializers.ModelSerializer):
         usuario.set_password(password)  # Encriptar la contraseña
         usuario.save()
         return usuario
+
+
+class DispositivoNotificacionSerializer(serializers.ModelSerializer):
+    """Serializer para Dispositivo de Notificación"""
+
+    class Meta:
+        model = DispositivoNotificacion
+        fields = [
+            "id",
+            "token_expo",
+            "plataforma",
+            "activo",
+            "fecha_registro",
+            "ultima_actualizacion",
+        ]
+
+        read_only_fields = ["id", "fecha_registro", "ultima_actualizacion"]
+
+    def validate_token_expo(self, value):
+        """Validación personalizada para token_expo"""
+        if not value.startswith("ExponentPushToken[") and not value.startswith(
+            "ExpoPushToken["
+        ):
+            raise serializers.ValidationError(
+                "El token_expo no tiene un formato válido. Debe comenzar con 'ExponentPushToken[' o 'ExpoPushToken['."
+            )
+
+        return value
+
+    def create(self, validated_data):
+        """Crear o actualizar un nuevo Dispositivo de Notificación"""
+        token = validated_data.get("token_expo")
+        usuario = validated_data.get("usuario")
+
+        # Si ya existe, reactivarlo y actualizar
+        dispositivo, creado = DispositivoNotificacion.objects.update_or_create(
+            token_expo=token,
+            usuario=usuario,
+            defaults={
+                "plataforma": validated_data.get("plataforma"),
+                "activo": True,
+            },
+        )
+
+        return dispositivo
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -980,3 +1026,33 @@ class TableroSerializer(serializers.ModelSerializer):
             "departamento",
             "columnas",
         ]
+
+
+class PublicacionConHistorialSerializer(PublicacionListSerializer):
+    """
+    Serializer para Publicacion que incluye el historial de modificaciones anidado.
+    """
+
+    # Reutilización  del serializer de historial
+    modificaciones = HistorialModificacionesSerializer(
+        many=True,
+        read_only=True,
+        source="historialmodificaciones_set",  # Este es el 'related_name' en el modelo
+    )
+
+    total_modificaciones = serializers.SerializerMethodField()
+
+    class Meta(PublicacionListSerializer.Meta):
+        # Heredamos los campos del PublicacionListSerializer y añadimos los nuevos
+        fields = list(PublicacionListSerializer.Meta.fields) + [
+            "modificaciones",
+            "total_modificaciones",
+        ]
+
+    def get_total_modificaciones(self, obj):
+        # 'obj' es una instancia de Publicacion
+        # Esto es más eficiente si se usa prefetch_related en la vista
+        if hasattr(obj, "historial_modificaciones_set"):
+            return obj.historialmodificaciones_set.count()
+        # Fallback por si no se hizo prefetch (menos eficiente)
+        return obj.historialmodificaciones_set.count()

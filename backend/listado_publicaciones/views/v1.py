@@ -329,7 +329,7 @@ class PublicacionViewSet(viewsets.ModelViewSet):
         ).order_by("-fecha")
 
         base_queryset = self.get_queryset().prefetch_related(
-            Prefetch("historialmodificaciones_set", queryset=historial_queryset)
+            Prefetch("historialmodificaciones", queryset=historial_queryset)
         )
 
         # Aplicamos los filtros estándar de PublicacionFilter (como ?departamento=... etc.)

@@ -27,6 +27,24 @@ class PublicacionFilter(django_filters.FilterSet):
     fecha_publicacion = (
         django_filters.DateFromToRangeFilter()
     )  # Filtro de rango de fechas
+    con_modificaciones = django_filters.BooleanFilter(
+        method="filter_con_modificaciones",
+        label="Indica si la publicación tiene modificaciones en su historial",
+    )
+
+    def filter_con_modificaciones(self, queryset, name, value):
+        """
+        Filtra las publicaciones basado en si tienen o no modificaciones.
+        'value' será True o False.
+        """
+        related_name = "historialmodificaciones"
+
+        if value:
+            # Si ?con_modificaciones=true
+            return queryset.filter(**{f"{related_name}__isnull": False}).distinct()
+
+        # Si es ?con_modificaciones=false
+        return queryset.filter(**{f"{related_name}__isnull": True}).distinct()
 
     def filter_junta_vecinal(self, queryset, name, value):
         if value:

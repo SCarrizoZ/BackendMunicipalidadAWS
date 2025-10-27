@@ -1037,7 +1037,7 @@ class PublicacionConHistorialSerializer(PublicacionListSerializer):
     modificaciones = HistorialModificacionesSerializer(
         many=True,
         read_only=True,
-        source="historialmodificaciones_set",  # Este es el 'related_name' en el modelo
+        source="historialmodificaciones",  # Este es el 'related_name' en el modelo
     )
 
     total_modificaciones = serializers.SerializerMethodField()
@@ -1052,7 +1052,7 @@ class PublicacionConHistorialSerializer(PublicacionListSerializer):
     def get_total_modificaciones(self, obj):
         # 'obj' es una instancia de Publicacion
         # Esto es más eficiente si se usa prefetch_related en la vista
-        if hasattr(obj, "historial_modificaciones_set"):
-            return obj.historialmodificaciones_set.count()
+        if hasattr(obj, "historialmodificaciones"):
+            return obj.historialmodificaciones.count()
         # Fallback por si no se hizo prefetch (menos eficiente)
-        return obj.historialmodificaciones_set.count()
+        return obj.historialmodificaciones.count()

@@ -494,7 +494,9 @@ class EvidenciaRespuesta(models.Model):
 
 
 class HistorialModificaciones(models.Model):
-    publicacion = models.ForeignKey(Publicacion, on_delete=models.CASCADE)
+    publicacion = models.ForeignKey(
+        Publicacion, on_delete=models.CASCADE, related_name="historialmodificaciones"
+    )
     fecha = models.DateTimeField(default=timezone.now)
     campo_modificado = models.CharField(max_length=100)
     valor_anterior = models.TextField()

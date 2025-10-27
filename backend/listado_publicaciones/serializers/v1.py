@@ -390,6 +390,8 @@ class EvidenciaSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "archivo",
+            "nombre",
+            "peso",
             "fecha",
             "extension",
             "publicacion_id",
@@ -673,6 +675,8 @@ class ImagenAnuncioSerializer(serializers.ModelSerializer):
             "id",
             "anuncio",  # Usar solo este campo para IDs
             "imagen",
+            "nombre",
+            "peso",
             "fecha",
             "extension",
         ]
@@ -735,6 +739,8 @@ class EvidenciaRespuestaSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "respuesta",
+            "nombre",
+            "peso",
             "archivo",
             "fecha",
             "extension",

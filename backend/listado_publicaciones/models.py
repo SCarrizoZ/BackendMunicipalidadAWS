@@ -374,6 +374,8 @@ class Publicacion(models.Model):
 class Evidencia(models.Model):
     publicacion = models.ForeignKey(Publicacion, on_delete=models.CASCADE)
     archivo = CloudinaryField("archivo")
+    nombre = models.CharField(max_length=200, null=True, blank=True)
+    peso = models.IntegerField(null=True, blank=True)  # en bytes
     fecha = models.DateTimeField(default=timezone.now)
     extension = models.CharField(max_length=30)
 
@@ -397,6 +399,8 @@ class AnuncioMunicipal(models.Model):
 class ImagenAnuncio(models.Model):
     anuncio = models.ForeignKey(AnuncioMunicipal, on_delete=models.CASCADE)
     imagen = CloudinaryField("imagen")
+    nombre = models.CharField(max_length=200, null=True, blank=True)
+    peso = models.IntegerField(null=True, blank=True)  # en bytes
     fecha = models.DateTimeField(default=timezone.now)
     extension = models.CharField(max_length=30)
 
@@ -429,6 +433,8 @@ class EvidenciaRespuesta(models.Model):
         RespuestaMunicipal, on_delete=models.CASCADE, related_name="evidencias"
     )
     archivo = CloudinaryField("archivo")
+    nombre = models.CharField(max_length=200, null=True, blank=True)
+    peso = models.IntegerField(null=True, blank=True)  # en bytes
     fecha = models.DateTimeField(default=timezone.now)
     extension = models.CharField(max_length=30)
     descripcion = models.CharField(max_length=200, null=True, blank=True)

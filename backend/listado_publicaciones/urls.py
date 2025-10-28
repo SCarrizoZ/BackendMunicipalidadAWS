@@ -40,6 +40,7 @@ from .views.v1 import (
     junta_mas_critica,
     publicaciones_resueltas_por_junta_vecinal,
     junta_mas_eficiente,
+    estadisticas_historial_modificaciones,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -131,4 +132,9 @@ urlpatterns = [
         name="publicaciones_resueltas_por_junta_vecinal",
     ),
     path("v1/junta-mas-eficiente/", junta_mas_eficiente, name="junta_mas_eficiente"),
+    path(
+        "v1/estadisticas-historial-modificaciones/",
+        estadisticas_historial_modificaciones,
+        name="estadisticas_historial_modificaciones",
+    ),
 ]

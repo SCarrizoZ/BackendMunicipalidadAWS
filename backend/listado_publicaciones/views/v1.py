@@ -1536,7 +1536,7 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
         elif self.action == "puntuar":
             permission_classes = [IsPublicationOwner]
         else:
-            permission_classes = [IsAdmin]
+            permission_classes = [IsAdmin | IsMunicipalStaff]
         return [permission() for permission in permission_classes]
 
     def get_serializer_class(self):
@@ -2166,7 +2166,7 @@ class UsuarioDepartamentoViewSet(viewsets.ModelViewSet):
     """ViewSet para gestionar asignaciones de usuarios a departamentos"""
 
     queryset = UsuarioDepartamento.objects.all()
-    permission_classes = [IsAdmin, IsMunicipalStaff]
+    permission_classes = [IsAdmin | IsMunicipalStaff]
 
     def get_serializer_class(self):
         if self.action in ["create", "update"]:
@@ -2208,7 +2208,7 @@ class HistorialModificacionesViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = HistorialModificaciones.objects.all().order_by("-fecha")
     serializer_class = HistorialModificacionesSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin | IsMunicipalStaff]
 
     def get_queryset(self):
         queryset = HistorialModificaciones.objects.all().order_by("-fecha")
@@ -2553,3 +2553,99 @@ def estadisticas_gestion_datos(request):
     }
 
     return Response(estadisticas)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def estadisticas_historial_modificaciones(request):
+    """
+    Endpoint para obtener estadísticas del historial de modificaciones,
+    diferenciadas por rol de usuario (Jefe de Departamento vs. otro).
+    """
+    usuario = request.user
+    es_jefe = usuario.tipo_usuario == "jefe_departamento"
+
+    # Obtener el departamento del usuario para filtrar por equipo
+    departamento = usuario.get_departamento_asignado()
+
+    # Queryset base de modificaciones
+    modificaciones_qs = HistorialModificaciones.objects.all()
+
+    if departamento:
+        # Si el usuario (jefe o no) pertenece a un departamento,
+        # filtramos por los miembros de ese departamento
+        miembros_equipo_ids = Usuario.objects.filter(
+            asignaciones_departamento__departamento=departamento, esta_activo=True
+        ).values_list("id", flat=True)
+
+        # Filtra las modificaciones que pertenecen a los autores de ese equipo
+        modificaciones_qs = modificaciones_qs.filter(autor_id__in=miembros_equipo_ids)
+    else:
+        # Si no tiene departamento (ej. Vecino),
+        # el scope es solo sus propias modificaciones
+        modificaciones_qs = modificaciones_qs.filter(autor=usuario)
+
+    if es_jefe:
+        if not departamento:
+            return Response(
+                {"error": "El Jefe de departamento no tiene un departamento asignado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 1. Total de modificaciones del departamento
+        total_modificaciones = modificaciones_qs.count()
+
+        # 2. Modificaciones de hoy
+        hoy = timezone.now().date()
+        modificaciones_hoy = modificaciones_qs.filter(fecha__date=hoy).count()
+
+        # 3. Total de miembros del equipo
+        # (Usamos los IDs que ya teníamos)
+        miembros_equipo_count = len(miembros_equipo_ids)
+
+        # 4. Miembro más activo
+        miembro_data = (
+            modificaciones_qs.select_related("autor")
+            .values("autor_id", "autor__nombre")
+            .annotate(modificaciones_count=Count("id"))
+            .order_by("-modificaciones_count")
+            .first()
+        )
+
+        miembro_mas_activo = None
+        if miembro_data:
+            miembro_mas_activo = {
+                "miembro": {
+                    "id": miembro_data.get("autor_id"),
+                    "nombre": miembro_data.get("autor__nombre"),
+                },
+                "modificaciones": miembro_data.get("modificaciones_count", 0),
+            }
+
+        estadisticas = {
+            "totalModificaciones": total_modificaciones,
+            "modificacionesHoy": modificaciones_hoy,
+            "miembroMasActivo": miembro_mas_activo,
+            "miembrosEquipo": miembros_equipo_count,
+        }
+
+    else:
+        # Lógica para un usuario que NO es Jefe
+
+        # 1. Total modificaciones (del departamento o propias si no hay depto)
+        total_modificaciones = modificaciones_qs.count()
+
+        # 2. Mis modificaciones
+        mis_modificaciones = modificaciones_qs.filter(autor=usuario).count()
+
+        # 3. Modificaciones del resto del equipo
+        modificaciones_equipo = modificaciones_qs.exclude(autor=usuario).count()
+
+        estadisticas = {
+            "totalModificaciones": total_modificaciones,
+            "misModificaciones": mis_modificaciones,
+            "modificacionesEquipo": modificaciones_equipo,
+            # "modificacionesAprobadas" se omite
+        }
+
+    return Response(estadisticas, status=status.HTTP_200_OK)

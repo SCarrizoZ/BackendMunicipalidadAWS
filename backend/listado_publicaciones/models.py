@@ -147,10 +147,10 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
 
     @classmethod
     def normalizar_rut(cls, rut):
-        """Normaliza un RUT removiendo puntos y guiones"""
+        """Normaliza un RUT removiendo puntos"""
         if not rut:
             return rut
-        return rut.replace(".", "").replace("-", "")
+        return rut.replace(".", "")
 
     @classmethod
     def existe_usuario(cls, rut=None, email=None):

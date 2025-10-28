@@ -181,7 +181,12 @@ class UsuarioSerializer(serializers.ModelSerializer):
             ).exists():
                 raise serializers.ValidationError("Ya existe un usuario con este RUT")
 
-        return rut_normalizado
+        # Reformatear el RUT al formato XXXXXXXX-Y antes de guardarlo
+        cuerpo = rut_normalizado[:-1]
+        dv = rut_normalizado[-1]
+        rut_con_guion = f"{cuerpo}-{dv}"
+
+        return rut_con_guion  # <--- Devolvemos el RUT con guion
 
     def validate_email(self, value):
         """Validación personalizada para email"""

@@ -2571,19 +2571,36 @@ def estadisticas_historial_modificaciones(request):
     # Queryset base de modificaciones
     modificaciones_qs = HistorialModificaciones.objects.all()
 
+    modificaciones_qs = modificaciones_qs.select_related(
+        "autor"
+    )  # Pre-carga datos del autor
+
+    miembros_equipo_ids = None  # Inicializamos fuera del if
+
     if departamento:
-        # Si el usuario (jefe o no) pertenece a un departamento,
-        # filtramos por los miembros de ese departamento
         miembros_equipo_ids = Usuario.objects.filter(
             asignaciones_departamento__departamento=departamento, esta_activo=True
         ).values_list("id", flat=True)
-
-        # Filtra las modificaciones que pertenecen a los autores de ese equipo
         modificaciones_qs = modificaciones_qs.filter(autor_id__in=miembros_equipo_ids)
     else:
-        # Si no tiene departamento (ej. Vecino),
-        # el scope es solo sus propias modificaciones
         modificaciones_qs = modificaciones_qs.filter(autor=usuario)
+    modificaciones_por_usuario_qs = (
+        modificaciones_qs.values(
+            "autor_id",  # Agrupar por ID de autor
+            "autor__nombre",  # Incluir el nombre del autor
+        )
+        .annotate(total_modificaciones=Count("id"))  # Contar modificaciones por grupo
+        .order_by("-total_modificaciones")
+    )  # Ordenar de más a menos activo
+
+    modificaciones_por_usuario_lista = [
+        {
+            "usuario_id": item["autor_id"],
+            "nombre_usuario": item["autor__nombre"],
+            "modificaciones": item["total_modificaciones"],
+        }
+        for item in modificaciones_por_usuario_qs
+    ]
 
     if es_jefe:
         if not departamento:
@@ -2592,34 +2609,29 @@ def estadisticas_historial_modificaciones(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # 1. Total de modificaciones del departamento
         total_modificaciones = modificaciones_qs.count()
-
-        # 2. Modificaciones de hoy
         hoy = timezone.now().date()
         modificaciones_hoy = modificaciones_qs.filter(fecha__date=hoy).count()
 
-        # 3. Total de miembros del equipo
-        # (Usamos los IDs que ya teníamos)
-        miembros_equipo_count = len(miembros_equipo_ids)
-
-        # 4. Miembro más activo
-        miembro_data = (
-            modificaciones_qs.select_related("autor")
-            .values("autor_id", "autor__nombre")
-            .annotate(modificaciones_count=Count("id"))
-            .order_by("-modificaciones_count")
-            .first()
+        # Usamos los IDs que ya teníamos o calculamos si es necesario
+        miembros_equipo_count = (
+            len(miembros_equipo_ids)
+            if miembros_equipo_ids is not None
+            else Usuario.objects.filter(id=usuario.id).count()
         )
 
+        # Miembro más activo ya lo tenemos de la consulta anterior
+        miembro_mas_activo_data = modificaciones_por_usuario_qs.first()
         miembro_mas_activo = None
-        if miembro_data:
+        if miembro_mas_activo_data:
             miembro_mas_activo = {
                 "miembro": {
-                    "id": miembro_data.get("autor_id"),
-                    "nombre": miembro_data.get("autor__nombre"),
+                    "id": miembro_mas_activo_data.get("autor_id"),
+                    "nombre": miembro_mas_activo_data.get("autor__nombre"),
                 },
-                "modificaciones": miembro_data.get("modificaciones_count", 0),
+                "modificaciones": miembro_mas_activo_data.get(
+                    "total_modificaciones", 0
+                ),
             }
 
         estadisticas = {
@@ -2627,25 +2639,20 @@ def estadisticas_historial_modificaciones(request):
             "modificacionesHoy": modificaciones_hoy,
             "miembroMasActivo": miembro_mas_activo,
             "miembrosEquipo": miembros_equipo_count,
+            "modificacionesPorUsuario": modificaciones_por_usuario_lista,
         }
 
     else:
         # Lógica para un usuario que NO es Jefe
-
-        # 1. Total modificaciones (del departamento o propias si no hay depto)
         total_modificaciones = modificaciones_qs.count()
-
-        # 2. Mis modificaciones
         mis_modificaciones = modificaciones_qs.filter(autor=usuario).count()
-
-        # 3. Modificaciones del resto del equipo
         modificaciones_equipo = modificaciones_qs.exclude(autor=usuario).count()
 
         estadisticas = {
             "totalModificaciones": total_modificaciones,
             "misModificaciones": mis_modificaciones,
             "modificacionesEquipo": modificaciones_equipo,
-            # "modificacionesAprobadas" se omite
+            "modificacionesPorUsuario": modificaciones_por_usuario_lista,
         }
 
     return Response(estadisticas, status=status.HTTP_200_OK)

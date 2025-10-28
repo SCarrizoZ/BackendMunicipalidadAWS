@@ -61,7 +61,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 import pandas as pd
 from ..pagination import DynamicPageNumberPagination
 from ..filters import PublicacionFilter, AnuncioMunicipalFilter, UsuarioRolFilter
-from ..permissions import IsAdmin, IsAuthenticatedOrAdmin, IsPublicationOwner
+from ..permissions import (
+    IsAdmin,
+    IsAuthenticatedOrAdmin,
+    IsPublicationOwner,
+    IsMunicipalStaff,
+)
 from datetime import datetime
 from django.utils import timezone
 from django.db.models import Count, Q, F, Prefetch
@@ -2161,7 +2166,7 @@ class UsuarioDepartamentoViewSet(viewsets.ModelViewSet):
     """ViewSet para gestionar asignaciones de usuarios a departamentos"""
 
     queryset = UsuarioDepartamento.objects.all()
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin, IsMunicipalStaff]
 
     def get_serializer_class(self):
         if self.action in ["create", "update"]:

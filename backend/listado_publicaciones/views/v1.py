@@ -2229,6 +2229,7 @@ class AuditoriaViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Auditoria.objects.all().order_by("-fecha")
     serializer_class = AuditoriaSerializer
     permission_classes = [IsAdmin]
+    pagination_class = DynamicPageNumberPagination
 
     def get_queryset(self):
         queryset = Auditoria.objects.all().order_by("-fecha")

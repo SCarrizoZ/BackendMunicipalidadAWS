@@ -17,6 +17,7 @@ from ..models import (
     Columna,
     Tarea,
     Comentario,
+    DispositivoNotificacion,
 )
 from ..serializers.v1 import (
     PublicacionListSerializer,
@@ -48,7 +49,9 @@ from ..serializers.v1 import (
     TareaListSerializer,
     TareaCreateUpdateSerializer,
     ComentarioSerializer,
+    DispositivoNotificacionSerializer,
 )
+from ..services.notifications import ExpoNotificationService
 from rest_framework import viewsets, status
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import AllowAny
@@ -86,6 +89,10 @@ import os
 matplotlib.use("Agg")  # Para que no sea necesario tener un display
 from io import BytesIO
 from django.conf import settings
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 category_colors = {
     "Seguridad": "#FF6B6B",
@@ -1578,6 +1585,42 @@ class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):
         serializer.save()
         return Response(serializer.data)
 
+    def perform_create(self, serializer):
+        """
+        Al crear respuesta, enviar notificación automáticamente
+        """
+        respuesta = serializer.save()
+
+        logger.info(f"📝 Nueva respuesta para: {respuesta.publicacion.codigo}")
+
+        # Enviar notificación push
+        try:
+            ExpoNotificationService.notificar_nueva_respuesta(
+                publicacion_id=respuesta.publicacion.id
+            )
+        except Exception as e:
+            # No fallar la creación si falla la notificación
+            logger.error(f"Error enviando notificación: {str(e)}")
+
+    def perform_update(self, serializer):
+        """
+        Al actualizar, verificar cambio de estado
+        """
+        instance = self.get_object()
+        estado_anterior = instance.situacion_posterior
+
+        respuesta = serializer.save()
+
+        # Si cambió estado, notificar
+        if respuesta.situacion_posterior != estado_anterior:
+            try:
+                ExpoNotificationService.notificar_cambio_estado(
+                    publicacion_id=respuesta.publicacion.id,
+                    nuevo_estado=respuesta.situacion_posterior,
+                )
+            except Exception as e:
+                logger.error(f"Error enviando notificación: {str(e)}")
+
 
 class SituacionesPublicacionesViewSet(viewsets.ModelViewSet):
     queryset = SituacionPublicacion.objects.all()
@@ -2657,3 +2700,123 @@ def estadisticas_historial_modificaciones(request):
         }
 
     return Response(estadisticas, status=status.HTTP_200_OK)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def registrar_dispositivo(request):
+    """
+    Registrar token de dispositivo para notificaciones
+
+    POST /api/v1/notificaciones/registrar/
+
+    Body:
+    {
+        "token": "ExponentPushToken[xxxxxx]",
+        "plataforma": "android",
+    }
+    """
+    token = request.data.get("token")
+    plataforma = request.data.get("plataforma", "android")
+
+    if not token:
+        return Response(
+            {"error": "Token requerido"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        dispositivo, created = DispositivoNotificacion.objects.update_or_create(
+            usuario=request.user,
+            token_expo=token,
+            defaults={
+                "plataforma": plataforma,
+                "activo": True,
+            },
+        )
+
+        logger.info(
+            f"{'✅ Nuevo' if created else '🔄 Actualizado'} dispositivo: "
+            f"{request.user.rut} - {plataforma}"
+        )
+
+        serializer = DispositivoNotificacionSerializer(dispositivo)
+
+        return Response(
+            {
+                "message": "Dispositivo registrado exitosamente",
+                "dispositivo": serializer.data,
+                "created": created,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    except Exception as e:
+        logger.error(f"❌ Error registrando dispositivo: {str(e)}")
+        return Response(
+            {"error": "Error interno del servidor"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def desactivar_dispositivo(request):
+    """
+    Desactivar notificaciones (al cerrar sesión)
+
+    POST /api/v1/notificaciones/desactivar/
+
+    Body:
+    {
+        "token": "ExponentPushToken[xxxxxx]"
+    }
+    """
+    token = request.data.get("token")
+
+    if not token:
+        return Response(
+            {"error": "Token requerido"}, status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        count = DispositivoNotificacion.objects.filter(
+            usuario=request.user, token_expo=token
+        ).update(activo=False)
+
+        if count > 0:
+            logger.info(f"🔴 Dispositivo desactivado: {request.user.rut}")
+            return Response({"message": "Dispositivo desactivado"})
+        else:
+            return Response(
+                {"message": "Dispositivo no encontrado"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Error desactivando: {str(e)}")
+        return Response(
+            {"error": "Error interno"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticatedOrAdmin])
+def mis_dispositivos(request):
+    """
+    Listar dispositivos del usuario
+
+    GET /api/v1/notificaciones/mis-dispositivos/
+    """
+    dispositivos = DispositivoNotificacion.objects.filter(
+        usuario=request.user
+    ).order_by("-ultima_actualizacion")
+
+    serializer = DispositivoNotificacionSerializer(dispositivos, many=True)
+
+    return Response(
+        {
+            "total": dispositivos.count(),
+            "activos": dispositivos.filter(activo=True).count(),
+            "dispositivos": serializer.data,
+        }
+    )

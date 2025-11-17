@@ -41,6 +41,9 @@ from .views.v1 import (
     publicaciones_resueltas_por_junta_vecinal,
     junta_mas_eficiente,
     estadisticas_historial_modificaciones,
+    registrar_dispositivo,
+    desactivar_dispositivo,
+    mis_dispositivos,
 )
 
 from rest_framework_simplejwt.views import TokenRefreshView
@@ -136,5 +139,18 @@ urlpatterns = [
         "v1/estadisticas-historial-modificaciones/",
         estadisticas_historial_modificaciones,
         name="estadisticas_historial_modificaciones",
+    ),
+    path(
+        "v1/notificaciones/registrar/",
+        registrar_dispositivo,
+        name="registrar_dispositivo",
+    ),
+    path(
+        "v1/notificaciones/desactivar/",
+        desactivar_dispositivo,
+        name="desactivar_dispositivo",
+    ),
+    path(
+        "v1/notificaciones/mis-dispositivos/", mis_dispositivos, name="mis_dispositivos"
     ),
 ]

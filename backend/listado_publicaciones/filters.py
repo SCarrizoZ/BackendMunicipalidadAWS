@@ -1,5 +1,5 @@
 import django_filters
-from .models import Publicacion, AnuncioMunicipal, Usuario
+from .models import Publicacion, AnuncioMunicipal, Usuario, JuntaVecinal
 from django.db.models import Q
 
 
@@ -183,3 +183,49 @@ class UsuarioRolFilter(django_filters.FilterSet):
         fields = [
             "tipo_usuario",
         ]
+
+
+class JuntaVecinalFilter(django_filters.FilterSet):
+    estado = django_filters.CharFilter(
+        method="filter_estado",
+        label="Estado",
+    )
+    fecha_inicio = django_filters.DateFilter(
+        field_name="fecha_creacion", lookup_expr="gte", label="Fecha Inicio"
+    )
+    fecha_fin = django_filters.DateFilter(
+        field_name="fecha_creacion", lookup_expr="lte", label="Fecha Fin"
+    )
+    nombre = django_filters.CharFilter(
+        method="filter_nombre",
+        label="Nombre (Título)",
+    )
+
+    def filter_estado(self, queryset, name, value):
+        if value:
+            # Dividimos los valores en caso de que lleguen como una cadena
+            estado_list = value.split(",")
+            # Creamos una Q para filtrar usando OR
+            query = Q()
+            for estado in estado_list:
+                query |= Q(estado__iexact=estado.strip())
+            return queryset.filter(query)
+        return queryset
+
+    def filter_nombre(self, queryset, name, value):
+        if value:
+            # Buscar por nombre_junta o nombre_calle
+            return queryset.filter(
+                Q(nombre_junta__icontains=value) | Q(nombre_calle__icontains=value)
+            )
+        return queryset
+
+    class Meta:
+        model = JuntaVecinal
+        fields = [
+            "estado",
+            "fecha_inicio",
+            "fecha_fin",
+            "nombre",
+        ]
+

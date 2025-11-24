@@ -9,6 +9,7 @@ from .views.v1 import (
     DepartamentosMunicipalesViewSet,
     EvidenciasViewSet,
     JuntasVecinalesViewSet,
+    JuntaVecinalPaginatedViewSet,
     RespuestasMunicipalesViewSet,
     SituacionesPublicacionesViewSet,
     AnunciosMunicipalesViewSet,
@@ -60,6 +61,11 @@ router.register(
 router.register(r"evidencias", EvidenciasViewSet, basename="evidencias")
 router.register(
     r"juntas-vecinales", JuntasVecinalesViewSet, basename="juntas-vecinales"
+)
+router.register(
+    r"juntas-vecinales-paginated",
+    JuntaVecinalPaginatedViewSet,
+    basename="juntas-vecinales-paginated",
 )
 router.register(
     r"respuestas-municipales",

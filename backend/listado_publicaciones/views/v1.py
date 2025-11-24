@@ -58,12 +58,12 @@ from rest_framework.permissions import AllowAny
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.filters import OrderingFilter
+from rest_framework.filters import OrderingFilter, SearchFilter
 from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 import pandas as pd
 from ..pagination import DynamicPageNumberPagination
-from ..filters import PublicacionFilter, AnuncioMunicipalFilter, UsuarioRolFilter
+from ..filters import PublicacionFilter, AnuncioMunicipalFilter, UsuarioRolFilter, JuntaVecinalFilter
 from ..permissions import (
     IsAdmin,
     IsAuthenticatedOrAdmin,
@@ -72,7 +72,7 @@ from ..permissions import (
 )
 from datetime import datetime
 from django.utils import timezone
-from django.db.models import Count, Q, F, Prefetch
+from django.db.models import Count, Q, F, Prefetch, Avg
 from django.db.models.functions import TruncMonth
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -644,8 +644,8 @@ class TasaResolucionDepartamento(APIView):
 
 class PublicacionesPorJuntaVecinalAPIView(APIView):
     """
-    Vista para retornar datos con formato de Junta Vecinal y categorías
-    aplicando filtros a las publicaciones.
+    Vista para retornar datos con formato de Junta Vecinal y métricas.
+    ACTUALIZADO: Cálculo de criticidad simplificado (Volumen + Retraso Legal).
     """
 
     def get(self, request, *args, **kwargs):
@@ -660,88 +660,87 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
             )
 
         publicaciones_filtradas = filterset.qs
+        total_publicaciones_global = publicaciones_filtradas.count()
 
-        # Calcular el total global de publicaciones filtradas
-        total_publicaciones = publicaciones_filtradas.count()
-
-        # Agregar datos por junta vecinal
         datos = []
         juntas = JuntaVecinal.objects.all()
+        ahora = timezone.now()
+        DIAS_HABILES_LIMITE = 20
 
         for junta in juntas:
-            # Filtrar publicaciones asociadas a esta junta
+            # Filtrar publicaciones de esta junta
             publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
             total_junta = publicaciones_junta.count()
 
             if total_junta == 0:
-                continue  # Saltar juntas sin publicaciones
+                continue
 
-            # Calcular publicaciones pendientes (situación inicial = 4 o null)
-            publicaciones_pendientes = publicaciones_junta.filter(
-                Q(situacion_id=4) | Q(situacion__isnull=True)
-            ).count()
-
-            # Calcular casos urgentes (prioridad alta)
-            casos_urgentes = publicaciones_junta.filter(prioridad="alta").count()
-            print(casos_urgentes)
-
-            # Calcular tiempo promedio pendiente (días desde la fecha_publicacion para publicaciones pendientes)
+            # --- CÁLCULO DE CRITICIDAD SIMPLIFICADO ---
+            
+            # 1. Identificar Pendientes
             publicaciones_pendientes_qs = publicaciones_junta.filter(
                 Q(situacion_id=4) | Q(situacion__isnull=True)
             )
+            cantidad_pendientes = publicaciones_pendientes_qs.count()
 
-            tiempo_promedio_pendiente = 0
-            if publicaciones_pendientes_qs.exists():
-                dias_pendientes = []
-                ahora = timezone.now()
-                for pub in publicaciones_pendientes_qs:
-                    dias = (ahora - pub.fecha_publicacion).days
-                    dias_pendientes.append(dias)
-                tiempo_promedio_pendiente = (
-                    sum(dias_pendientes) // len(dias_pendientes)
-                    if dias_pendientes
-                    else 0
-                )
+            # 2. Calcular Vencidas (Pendientes > 20 días hábiles)
+            cantidad_vencidas = 0
+            dias_pendientes_acumulados = []
 
-            # Calcular índice de criticidad
-            # Factores: % pendientes (40%), casos urgentes (30%), tiempo promedio (20%), volumen (10%)
-            porcentaje_pendientes = (
-                (publicaciones_pendientes / total_junta) * 100 if total_junta > 0 else 0
+            for pub in publicaciones_pendientes_qs:
+                # Días naturales (solo informativo)
+                dias_naturales = (ahora - pub.fecha_publicacion).days
+                dias_pendientes_acumulados.append(dias_naturales)
+
+                # Días hábiles (criterio legal)
+                try:
+                    # pd.bdate_range cuenta los días laborales entre fechas
+                    dias_habiles = len(pd.bdate_range(start=pub.fecha_publicacion.date(), end=ahora.date())) - 1
+                    if dias_habiles > DIAS_HABILES_LIMITE:
+                        cantidad_vencidas += 1
+                except Exception:
+                    pass
+
+            tiempo_promedio_pendiente = (
+                sum(dias_pendientes_acumulados) // len(dias_pendientes_acumulados)
+                if dias_pendientes_acumulados
+                else 0
             )
-            porcentaje_urgentes = (
-                (casos_urgentes / total_junta) * 100 if total_junta > 0 else 0
-            )
 
-            # Normalizar tiempo promedio (máximo esperado 60 días)
-            factor_tiempo = min(tiempo_promedio_pendiente / 60, 1) * 100
-
-            # Normalizar volumen (considerando que >20 publicaciones es alto volumen)
+            # --- FÓRMULA DE ÍNDICE (0-100) ---
+            # Factor Volumen (50%): Normalizado a 20 publicaciones máx.
             factor_volumen = min(total_junta / 20, 1) * 100
-
-            # Calcular índice de criticidad (0-100)
-            indice_criticidad = (
-                (porcentaje_pendientes * 0.4)
-                + (porcentaje_urgentes * 0.3)
-                + (factor_tiempo * 0.2)
-                + (factor_volumen * 0.1)
+            
+            # Factor Retraso (50%): % de publicaciones totales que están vencidas
+            porcentaje_vencidas = (
+                (cantidad_vencidas / total_junta) * 100 if total_junta > 0 else 0
             )
 
-            # Obtener la última publicación de esta junta
-            ultima_publicacion = publicaciones_junta.order_by(
-                "-fecha_publicacion"
-            ).first()
-            fecha_ultima_publicacion = (
-                ultima_publicacion.fecha_publicacion if ultima_publicacion else None
-            )
+            indice_criticidad = (factor_volumen * 0.5) + (porcentaje_vencidas * 0.5)
 
-            # Obtener recuento por categoría
+            # --- 2. CÁLCULO DE SATISFACCIÓN (NUEVO) ---
+            
+            # Buscar respuestas asociadas a las publicaciones de esta junta que tengan puntuación (>0)
+            respuestas_puntuadas = RespuestaMunicipal.objects.filter(
+                publicacion__in=publicaciones_junta,
+                puntuacion__gt=0
+            )
+            
+            cantidad_valoraciones = respuestas_puntuadas.count()
+            promedio_calificacion = 0.0
+            
+            if cantidad_valoraciones > 0:
+                promedio_calificacion = respuestas_puntuadas.aggregate(promedio=Avg('puntuacion'))['promedio'] or 0.0
+
+            # Obtener datos extra (categorías, última publicación)
+            ultima_publicacion = publicaciones_junta.order_by("-fecha_publicacion").first()
             categorias_conteo = (
                 publicaciones_junta.values("categoria__nombre")
                 .annotate(conteo=Count("id"))
                 .order_by("-conteo")
             )
 
-            # Construir el resultado para esta junta
+            # Construir respuesta manteniendo compatibilidad con frontend
             junta_data = {
                 "Junta_Vecinal": {
                     "latitud": junta.latitud,
@@ -749,27 +748,27 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
                     "nombre": junta.nombre_junta,
                     "total_publicaciones": total_junta,
                     "intensidad": (
-                        total_junta / total_publicaciones
-                        if total_publicaciones > 0
+                        total_junta / total_publicaciones_global
+                        if total_publicaciones_global > 0
                         else 0
                     ),
-                    "pendientes": publicaciones_pendientes,
-                    "urgentes": casos_urgentes,
+                    "pendientes": cantidad_pendientes,
+                    "urgentes": cantidad_vencidas, # Reemplazamos urgentes por vencidas para visualización
                     "indice_criticidad": round(indice_criticidad, 2),
-                    "porcentaje_pendientes": round(porcentaje_pendientes, 2),
-                    "porcentaje_urgentes": round(porcentaje_urgentes, 2),
+                    "porcentaje_pendientes": round((cantidad_pendientes / total_junta * 100), 2),
+                    "porcentaje_urgentes": round(porcentaje_vencidas, 2), # Refleja % vencidas
+                    # Métricas de Satisfacción (NUEVO)
+                    "calificacion_promedio": round(promedio_calificacion, 1), # Ej: 4.5
+                    "total_valoraciones": cantidad_valoraciones,
                 },
                 "tiempo_promedio_pendiente": f"{tiempo_promedio_pendiente} días",
                 "ultima_publicacion": (
-                    fecha_ultima_publicacion.isoformat()
-                    if fecha_ultima_publicacion
+                    ultima_publicacion.fecha_publicacion.isoformat()
+                    if ultima_publicacion
                     else None
                 ),
             }
 
-            print(junta_data)
-
-            # Agregar categorías dinámicamente
             for categoria in categorias_conteo:
                 junta_data[categoria["categoria__nombre"]] = categoria["conteo"]
 
@@ -782,7 +781,9 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
 @permission_classes([IsAuthenticatedOrAdmin])
 def junta_mas_critica(request):
     """
-    Endpoint para obtener la junta vecinal más crítica y estadísticas de criticidad
+    Endpoint para obtener la junta vecinal más crítica basado en:
+    1. Cantidad de publicaciones (Volumen)
+    2. Cantidad de publicaciones que excedieron 20 días hábiles (Legal)
     """
     # Aplicar el filtro a las publicaciones
     publicaciones = Publicacion.objects.all()
@@ -796,6 +797,10 @@ def junta_mas_critica(request):
 
     publicaciones_filtradas = filterset.qs
     juntas_criticidad = []
+    ahora = timezone.now()
+    
+    # Límite legal de días hábiles
+    DIAS_HABILES_LIMITE = 20
 
     for junta in JuntaVecinal.objects.all():
         publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
@@ -804,44 +809,58 @@ def junta_mas_critica(request):
         if total_junta == 0:
             continue
 
-        # Calcular métricas de criticidad
-        publicaciones_pendientes = publicaciones_junta.filter(
-            Q(situacion_id=4) | Q(situacion__isnull=True)
-        ).count()
-        casos_urgentes = publicaciones_junta.filter(prioridad="alta").count()
-
-        # Tiempo promedio pendiente
+        # 1. Obtener publicaciones pendientes (Situación 4 o Nula)
         publicaciones_pendientes_qs = publicaciones_junta.filter(
             Q(situacion_id=4) | Q(situacion__isnull=True)
         )
+        
+        cantidad_pendientes = publicaciones_pendientes_qs.count()
+
+        # 2. Calcular cuántas han excedido el tiempo de respuesta (20 días hábiles)
+        cantidad_vencidas = 0
         tiempo_promedio_pendiente = 0
+        dias_pendientes_acumulados = []
+
         if publicaciones_pendientes_qs.exists():
-            dias_pendientes = []
-            ahora = timezone.now()
             for pub in publicaciones_pendientes_qs:
-                dias = (ahora - pub.fecha_publicacion).days
-                dias_pendientes.append(dias)
+                # Calcular días naturales para el promedio (mantener métrica informativa)
+                dias_naturales = (ahora - pub.fecha_publicacion).days
+                dias_pendientes_acumulados.append(dias_naturales)
+
+                # Calcular días HÁBILES para la criticidad legal
+                # Usamos pandas bdate_range que ya excluye fines de semana
+                # Nota: Para feriados específicos se requeriría una lista de 'holidays'
+                try:
+                    dias_habiles = len(pd.bdate_range(start=pub.fecha_publicacion.date(), end=ahora.date())) - 1
+                    if dias_habiles > DIAS_HABILES_LIMITE:
+                        cantidad_vencidas += 1
+                except Exception:
+                    # Fallback simple si falla pandas: 20 días hábiles aprox 28 días naturales
+                    if dias_naturales > 28:
+                        cantidad_vencidas += 1
+
             tiempo_promedio_pendiente = (
-                sum(dias_pendientes) // len(dias_pendientes) if dias_pendientes else 0
+                sum(dias_pendientes_acumulados) // len(dias_pendientes_acumulados)
+                if dias_pendientes_acumulados else 0
             )
 
-        # Calcular índice de criticidad
-        porcentaje_pendientes = (
-            (publicaciones_pendientes / total_junta) * 100 if total_junta > 0 else 0
-        )
-        porcentaje_urgentes = (
-            (casos_urgentes / total_junta) * 100 if total_junta > 0 else 0
-        )
-        factor_tiempo = min(tiempo_promedio_pendiente / 60, 1) * 100
+        # --- NUEVA LÓGICA DE CÁLCULO ---
+        
+        # Factor 1: Volumen (50% del índice)
+        # Normalizamos: Si tiene 20 o más publicaciones, obtiene el puntaje máximo de volumen
         factor_volumen = min(total_junta / 20, 1) * 100
 
-        indice_criticidad = (
-            (porcentaje_pendientes * 0.4)
-            + (porcentaje_urgentes * 0.3)
-            + (factor_tiempo * 0.2)
-            + (factor_volumen * 0.1)
+        # Factor 2: Retraso Legal (50% del índice)
+        # Porcentaje de las publicaciones totales de la junta que están vencidas
+        porcentaje_vencidas = (
+            (cantidad_vencidas / total_junta) * 100 if total_junta > 0 else 0
         )
+        
+        # Índice Final
+        indice_criticidad = (factor_volumen * 0.5) + (porcentaje_vencidas * 0.5)
 
+        # Mantenemos las claves que espera el frontend, pero actualizamos los valores
+        # Agregamos 'cantidad_vencidas' como dato extra si el frontend decide usarlo a futuro
         juntas_criticidad.append(
             {
                 "junta": {
@@ -853,11 +872,12 @@ def junta_mas_critica(request):
                 },
                 "metricas": {
                     "total_publicaciones": total_junta,
-                    "publicaciones_pendientes": publicaciones_pendientes,
-                    "casos_urgentes": casos_urgentes,
+                    "publicaciones_pendientes": cantidad_pendientes,
+                    "casos_urgentes": cantidad_vencidas, # Reutilizamos campo para visualización o creamos uno nuevo
+                    "cantidad_vencidas_legal": cantidad_vencidas, # Campo nuevo explícito
                     "tiempo_promedio_pendiente": tiempo_promedio_pendiente,
-                    "porcentaje_pendientes": round(porcentaje_pendientes, 2),
-                    "porcentaje_urgentes": round(porcentaje_urgentes, 2),
+                    "porcentaje_pendientes": round((cantidad_pendientes/total_junta)*100, 2),
+                    "porcentaje_urgentes": round(porcentaje_vencidas, 2), # Aquí ponemos el % de vencidas
                     "indice_criticidad": round(indice_criticidad, 2),
                 },
             }
@@ -868,7 +888,7 @@ def junta_mas_critica(request):
         key=lambda x: x["metricas"]["indice_criticidad"], reverse=True
     )
 
-    # Estadísticas generales
+    # Estadísticas generales actualizadas
     estadisticas = {
         "total_juntas_analizadas": len(juntas_criticidad),
         "junta_mas_critica": juntas_criticidad[0] if juntas_criticidad else None,
@@ -883,10 +903,9 @@ def junta_mas_critica(request):
             else 0
         ),
         "criterios_calculo": {
-            "porcentaje_pendientes": "40% del índice",
-            "porcentaje_urgentes": "30% del índice",
-            "factor_tiempo": "20% del índice (normalizado a 60 días máximo)",
-            "factor_volumen": "10% del índice (normalizado a 20 publicaciones máximo)",
+            "factor_volumen": "50% del índice (Basado en total de publicaciones)",
+            "factor_retraso_legal": "50% del índice (Publicaciones que exceden 20 días hábiles)",
+            "nota": "Cálculo simplificado según requerimiento legal",
             "rango_indice": "0-100 (mayor = más crítico)",
         },
     }
@@ -1031,11 +1050,9 @@ def publicaciones_resueltas_por_junta_vecinal(request):
 @permission_classes([IsAuthenticatedOrAdmin])
 def junta_mas_eficiente(request):
     """
-    Endpoint para obtener la junta vecinal más eficiente y estadísticas de eficiencia
-    - Eficiencia basada en porcentaje de publicaciones resueltas
-    - Considera tiempo de resolución y casos de alta prioridad resueltos
+    Endpoint para obtener la junta vecinal más eficiente.
+    ACTUALIZADO: Eficiencia basada en Volumen y Cumplimiento de Plazo Legal (20 días hábiles).
     """
-    # Aplicar el filtro a las publicaciones
     publicaciones = Publicacion.objects.all()
     filterset = PublicacionFilter(request.GET, queryset=publicaciones)
 
@@ -1047,6 +1064,7 @@ def junta_mas_eficiente(request):
 
     publicaciones_filtradas = filterset.qs
     juntas_eficiencia = []
+    DIAS_HABILES_LIMITE = 20
 
     for junta in JuntaVecinal.objects.all():
         publicaciones_junta = publicaciones_filtradas.filter(junta_vecinal=junta)
@@ -1055,70 +1073,52 @@ def junta_mas_eficiente(request):
         if total_junta == 0:
             continue
 
-        # Calcular métricas de eficiencia
-        publicaciones_resueltas = publicaciones_junta.exclude(
-            Q(situacion_id=4) | Q(situacion__isnull=True)
-        ).count()
-
-        casos_alta_prioridad_resueltos = (
-            publicaciones_junta.filter(prioridad="alta")
-            .exclude(Q(situacion_id=4) | Q(situacion__isnull=True))
-            .count()
-        )
-
-        casos_alta_prioridad_total = publicaciones_junta.filter(
-            prioridad="alta"
-        ).count()
-
-        # Tiempo promedio de resolución
+        # Filtrar solo resueltas
         publicaciones_resueltas_qs = publicaciones_junta.exclude(
             Q(situacion_id=4) | Q(situacion__isnull=True)
         )
+        total_resueltas = publicaciones_resueltas_qs.count()
 
-        tiempo_promedio_resolucion = 0
+        # Calcular cuántas se resolvieron DENTRO del plazo legal
+        resueltas_en_plazo = 0
+        dias_resolucion_acumulados = 0
+
         if publicaciones_resueltas_qs.exists():
-            dias_resolucion = []
             for pub in publicaciones_resueltas_qs:
                 respuesta = RespuestaMunicipal.objects.filter(publicacion=pub).first()
                 if respuesta:
-                    dias = (respuesta.fecha - pub.fecha_publicacion).days
-                    if dias >= 0:
-                        dias_resolucion.append(dias)
-            tiempo_promedio_resolucion = (
-                sum(dias_resolucion) // len(dias_resolucion) if dias_resolucion else 0
-            )
+                    # Días naturales para promedio informativo
+                    dias_naturales = (respuesta.fecha - pub.fecha_publicacion).days
+                    if dias_naturales >= 0:
+                        dias_resolucion_acumulados += dias_naturales
 
-        # Calcular índice de eficiencia
-        porcentaje_resueltas = (
-            (publicaciones_resueltas / total_junta) * 100 if total_junta > 0 else 0
-        )
-        porcentaje_alta_prioridad_resueltas = (
-            (casos_alta_prioridad_resueltos / casos_alta_prioridad_total) * 100
-            if casos_alta_prioridad_total > 0
-            else 0
-        )
-
-        # Factor de velocidad (menor tiempo = mayor eficiencia)
-        # Normalizar a 60 días máximo, invertir para que menos días = más eficiencia
-        factor_velocidad = (
-            max(0, (60 - tiempo_promedio_resolucion) / 60) * 100
-            if tiempo_promedio_resolucion > 0
-            else 100
+                    # Días hábiles para métrica de eficiencia
+                    try:
+                        dias_habiles = len(pd.bdate_range(start=pub.fecha_publicacion.date(), end=respuesta.fecha.date())) - 1
+                        if dias_habiles <= DIAS_HABILES_LIMITE:
+                            resueltas_en_plazo += 1
+                    except Exception:
+                        pass
+        
+        tiempo_promedio_resolucion = (
+            dias_resolucion_acumulados // total_resueltas if total_resueltas > 0 else 0
         )
 
-        # Factor de volumen (más publicaciones resueltas = más eficiente)
-        factor_volumen = min(publicaciones_resueltas / 20, 1) * 100
+        # --- FÓRMULA DE EFICIENCIA SIMPLIFICADA ---
+        
+        # Factor Volumen (50%): Manejar alto volumen es eficiente
+        factor_volumen = min(total_junta / 20, 1) * 100
 
-        # Calcular índice de eficiencia (0-100, mayor = más eficiente)
-        indice_eficiencia = (
-            (porcentaje_resueltas * 0.4)
-            + (porcentaje_alta_prioridad_resueltas * 0.3)
-            + (factor_velocidad * 0.2)
-            + (factor_volumen * 0.1)
+        # Factor Cumplimiento Legal (50%): 
+        # Porcentaje del TOTAL de publicaciones que fueron resueltas en plazo.
+        # (Usamos total_junta para penalizar las que se quedaron sin resolver)
+        porcentaje_cumplimiento = (
+            (resueltas_en_plazo / total_junta) * 100 if total_junta > 0 else 0
         )
 
-        # Solo incluir juntas con publicaciones resueltas
-        if publicaciones_resueltas > 0:
+        indice_eficiencia = (factor_volumen * 0.5) + (porcentaje_cumplimiento * 0.5)
+
+        if total_resueltas > 0:
             juntas_eficiencia.append(
                 {
                     "junta": {
@@ -1130,15 +1130,11 @@ def junta_mas_eficiente(request):
                     },
                     "metricas": {
                         "total_publicaciones": total_junta,
-                        "publicaciones_resueltas": publicaciones_resueltas,
-                        "casos_alta_prioridad_resueltos": casos_alta_prioridad_resueltos,
-                        "casos_alta_prioridad_total": casos_alta_prioridad_total,
+                        "publicaciones_resueltas": total_resueltas,
+                        "resueltas_en_plazo_legal": resueltas_en_plazo,
                         "tiempo_promedio_resolucion": tiempo_promedio_resolucion,
-                        "porcentaje_resueltas": round(porcentaje_resueltas, 2),
-                        "porcentaje_alta_prioridad_resueltas": round(
-                            porcentaje_alta_prioridad_resueltas, 2
-                        ),
-                        "factor_velocidad": round(factor_velocidad, 2),
+                        "porcentaje_resueltas": round((total_resueltas / total_junta * 100), 2),
+                        "factor_cumplimiento": round(porcentaje_cumplimiento, 2),
                         "indice_eficiencia": round(indice_eficiencia, 2),
                     },
                 }
@@ -1149,38 +1145,14 @@ def junta_mas_eficiente(request):
         key=lambda x: x["metricas"]["indice_eficiencia"], reverse=True
     )
 
-    # Estadísticas generales
     estadisticas = {
         "total_juntas_analizadas": len(juntas_eficiencia),
         "junta_mas_eficiente": juntas_eficiencia[0] if juntas_eficiencia else None,
         "top_5_eficientes": juntas_eficiencia[:5],
-        "promedio_eficiencia": (
-            round(
-                sum(j["metricas"]["indice_eficiencia"] for j in juntas_eficiencia)
-                / len(juntas_eficiencia),
-                2,
-            )
-            if juntas_eficiencia
-            else 0
-        ),
-        "promedio_tiempo_resolucion": (
-            round(
-                sum(
-                    j["metricas"]["tiempo_promedio_resolucion"]
-                    for j in juntas_eficiencia
-                )
-                / len(juntas_eficiencia),
-                2,
-            )
-            if juntas_eficiencia
-            else 0
-        ),
         "criterios_calculo": {
-            "porcentaje_resueltas": "40% del índice",
-            "porcentaje_alta_prioridad_resueltas": "30% del índice",
-            "factor_velocidad": "20% del índice (60 días máximo, menos tiempo = más eficiencia)",
-            "factor_volumen": "10% del índice (20 publicaciones resueltas máximo)",
-            "rango_indice": "0-100 (mayor = más eficiente)",
+            "factor_volumen": "50% del índice (Capacidad de gestión)",
+            "factor_cumplimiento": "50% del índice (Resoluciones dentro de 20 días hábiles sobre el total)",
+            "nota": "Cálculo alineado a normativa legal de 20 días hábiles",
         },
     }
 
@@ -1532,6 +1504,27 @@ class JuntasVecinalesViewSet(AuditMixin, viewsets.ModelViewSet):
                 {"error": f"Error interno: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+
+class JuntaVecinalPaginatedViewSet(AuditMixin, viewsets.ModelViewSet):
+    queryset = JuntaVecinal.objects.all().order_by("-fecha_creacion")
+    serializer_class = JuntaVecinalSerializer
+    pagination_class = DynamicPageNumberPagination
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_class = JuntaVecinalFilter
+    search_fields = ["nombre_junta", "nombre_calle"]
+    ordering_fields = ["fecha_creacion", "estado", "nombre_junta"]
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            permission_classes = [IsAuthenticatedOrAdmin]
+        else:
+            permission_classes = [IsAdmin]
+        return [permission() for permission in permission_classes]
+
+    def get_audit_module_name(self):
+        return "Juntas Vecinales Paginadas"
 
 
 class RespuestasMunicipalesViewSet(viewsets.ModelViewSet):

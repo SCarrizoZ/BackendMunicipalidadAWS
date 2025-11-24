@@ -20,3 +20,6 @@ Claves-EC2-Municipalidad.pem
 #Archivos adicionales
 CredencialesSuperUsuario.txt
 .vercel
+
+#Documentación en formato md
+*.md

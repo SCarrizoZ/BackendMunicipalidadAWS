@@ -718,20 +718,6 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
 
             indice_criticidad = (factor_volumen * 0.5) + (porcentaje_vencidas * 0.5)
 
-            # --- 2. CÁLCULO DE SATISFACCIÓN (NUEVO) ---
-            
-            # Buscar respuestas asociadas a las publicaciones de esta junta que tengan puntuación (>0)
-            respuestas_puntuadas = RespuestaMunicipal.objects.filter(
-                publicacion__in=publicaciones_junta,
-                puntuacion__gt=0
-            )
-            
-            cantidad_valoraciones = respuestas_puntuadas.count()
-            promedio_calificacion = 0.0
-            
-            if cantidad_valoraciones > 0:
-                promedio_calificacion = respuestas_puntuadas.aggregate(promedio=Avg('puntuacion'))['promedio'] or 0.0
-
             # Obtener datos extra (categorías, última publicación)
             ultima_publicacion = publicaciones_junta.order_by("-fecha_publicacion").first()
             categorias_conteo = (
@@ -757,9 +743,6 @@ class PublicacionesPorJuntaVecinalAPIView(APIView):
                     "indice_criticidad": round(indice_criticidad, 2),
                     "porcentaje_pendientes": round((cantidad_pendientes / total_junta * 100), 2),
                     "porcentaje_urgentes": round(porcentaje_vencidas, 2), # Refleja % vencidas
-                    # Métricas de Satisfacción (NUEVO)
-                    "calificacion_promedio": round(promedio_calificacion, 1), # Ej: 4.5
-                    "total_valoraciones": cantidad_valoraciones,
                 },
                 "tiempo_promedio_pendiente": f"{tiempo_promedio_pendiente} días",
                 "ultima_publicacion": (
@@ -1005,6 +988,19 @@ def publicaciones_resueltas_por_junta_vecinal(request):
         # Calcular intensidad de frío (eficiencia normalizada)
         intensidad_frio = eficiencia / 100  # Normalizar a 0-1
 
+        # --- CÁLCULO DE SATISFACCIÓN (NUEVO) ---
+        # Agregamos la misma lógica que en el mapa de calor
+        respuestas_puntuadas = RespuestaMunicipal.objects.filter(
+            publicacion__in=publicaciones_junta,
+            puntuacion__gt=0
+        )
+        
+        cantidad_valoraciones = respuestas_puntuadas.count()
+        promedio_calificacion = 0.0
+        
+        if cantidad_valoraciones > 0:
+            promedio_calificacion = respuestas_puntuadas.aggregate(promedio=Avg('puntuacion'))['promedio'] or 0.0
+
         # Obtener recuento por categoría (solo resueltas)
         categorias_conteo = (
             publicaciones_resueltas_qs.values("categoria__nombre")
@@ -1027,6 +1023,9 @@ def publicaciones_resueltas_por_junta_vecinal(request):
                 "intensidad": (
                     total_junta / total_publicaciones if total_publicaciones > 0 else 0
                 ),
+                # === CAMPOS FALTANTES AGREGADOS ===
+                "calificacion_promedio": round(promedio_calificacion, 1),
+                "total_valoraciones": cantidad_valoraciones,
             },
             "tiempo_promedio_resolucion": f"{tiempo_promedio_resolucion} días",
             "ultima_resolucion": (

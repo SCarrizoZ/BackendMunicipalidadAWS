@@ -16,6 +16,10 @@ class PublicacionFilter(django_filters.FilterSet):
         method="filter_categoria",
         label="Categoria",
     )
+    categoria_ids = django_filters.CharFilter(
+        method="filter_categoria_ids",
+        label="Categoria (Lista de IDs)",
+    )
     situacion = django_filters.CharFilter(
         method="filter_situacion_publicacion",
         label="Situacion Publicacion",
@@ -79,6 +83,13 @@ class PublicacionFilter(django_filters.FilterSet):
             return queryset.filter(query)
         return queryset
 
+    def filter_categoria_ids(self, queryset, name, value):
+        if value:
+            # Convertimos "1,2,5" -> [1, 2, 5]
+            ids = [id.strip() for id in value.split(",") if id.strip().isdigit()]
+            return queryset.filter(categoria__id__in=ids)
+        return queryset
+
     def filter_situacion_publicacion(self, queryset, name, value):
         if value:
             # Dividimos los valores en caso de que lleguen como una cadena
@@ -113,6 +124,7 @@ class PublicacionFilter(django_filters.FilterSet):
             "junta_vecinal",
             "departamento",
             "categoria",
+            "categoria_ids",
             "situacion",
             "usuario_id",
             "fecha_publicacion",

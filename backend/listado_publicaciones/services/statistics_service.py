@@ -69,11 +69,11 @@ class StatisticsService:
         )
 
     @staticmethod
-    def get_resueltos_por_mes():
-        fecha_inicio = timezone.now() - timezone.timedelta(days=180)
+    def get_resueltos_por_mes(queryset_filtro=None):
+        queryset_filtro = Publicacion.objects.all() if queryset_filtro is None else queryset_filtro
 
         datos = (
-            Publicacion.objects.filter(fecha_publicacion__gte=fecha_inicio)
+            queryset_filtro
             .annotate(mes=TruncMonth("fecha_publicacion"))
             .values("mes")
             .annotate(
@@ -97,39 +97,53 @@ class StatisticsService:
         return respuesta
 
     @staticmethod
-    def get_tasa_resolucion_departamento():
+    def get_tasa_resolucion_departamento(queryset_filtro=None):
+        """
+        Calcula la tasa de resolución por departamento y por MES.
+        Restaura la granularidad temporal de la rama Main.
+        """
+        # 1. Usar el queryset filtrado o todos
+        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
+
+        # 2. Agrupar por Mes Y Departamento (Lógica restaurada)
         datos = (
-            Publicacion.objects.values("departamento__nombre")
+            qs.annotate(
+                mes=TruncMonth("fecha_publicacion"),
+                departamento_nombre=F("departamento__nombre"),
+            )
+            .values("mes", "departamento_nombre")
             .annotate(
                 total=Count("id"),
                 resueltos=Count("id", filter=Q(situacion__nombre="Resuelto")),
             )
-            .annotate(
-                tasa=Case(
-                    When(
-                        total__gt=0,
-                        then=ExpressionWrapper(
-                            F("resueltos") * 100.0 / F("total"),
-                            output_field=FloatField(),
-                        ),
-                    ),
-                    default=0.0,
-                    output_field=FloatField(),
-                )
-            )
-            .order_by("-total")
+            .order_by("mes", "departamento_nombre")
         )
 
-        respuesta = []
+        # 3. Formatear como Diccionario anidado { Depto: { Mes: Stats } }
+        # Esto coincide con la estructura de VistaAnterior.py
+        respuesta = {}
         for dato in datos:
-            respuesta.append(
-                {
-                    "departamento": dato["departamento__nombre"],
-                    "total": dato["total"],
-                    "resueltos": dato["resueltos"],
-                    "tasa": round(dato["tasa"], 1),
-                }
-            )
+            # Manejo seguro de fecha
+            if not dato["mes"]: 
+                continue
+            
+            mes_nombre = StatisticsService.MESES_ESPANOL[dato["mes"].month]
+            depto = dato["departamento_nombre"]
+            total = dato["total"]
+            resueltos = dato["resueltos"]
+            
+            # Cálculo de tasa
+            tasa = (resueltos / total * 100) if total > 0 else 0
+
+            if depto not in respuesta:
+                respuesta[depto] = {}
+
+            respuesta[depto][mes_nombre] = {
+                "total": total,
+                "resueltos": resueltos,
+                "tasa_resolucion": round(tasa, 2),
+            }
+
         return respuesta
 
     @staticmethod

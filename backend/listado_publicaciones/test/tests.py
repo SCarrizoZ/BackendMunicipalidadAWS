@@ -141,19 +141,20 @@ class EstadisticasViewTest(APITestCase):
         self.assertEqual(response.data['tasa_resolucion'], 50.0)
 
     def test_junta_mas_critica(self):
-        """Verifica la lógica de junta más crítica con la nueva estructura compleja"""
+        """Verifica la lógica de junta más crítica con la estructura anidada final"""
         url = "/api/v1/estadisticas/junta-critica/"
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        # CORRECCIÓN: Accedemos a la estructura anidada 'junta' -> 'nombre'
-        # Antes era: response.data['junta_vecinal__nombre_junta']
-        self.assertEqual(response.data['junta']['nombre'], "Junta Stats")
+        # CORRECCIÓN: La estructura ahora es response -> junta_mas_critica -> junta -> nombre
+        self.assertIn('junta_mas_critica', response.data)
         
-        # CORRECCIÓN: Accedemos a las métricas para verificar los pendientes
-        # Antes era: response.data['total_pendientes']
-        self.assertEqual(response.data['metricas']['pendientes'], 1)
+        datos_criticos = response.data['junta_mas_critica']
+        self.assertEqual(datos_criticos['junta']['nombre'], "Junta Stats")
+        
+        # CORRECCIÓN: Verificar métricas dentro del objeto anidado
+        self.assertEqual(datos_criticos['metricas']['publicaciones_pendientes'], 1)
 
 class ReportesViewTest(APITestCase):
     def setUp(self):

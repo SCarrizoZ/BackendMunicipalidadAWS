@@ -42,7 +42,10 @@ def ResueltosPorMes(request):
     """
     Retorna la cantidad de publicaciones resueltas vs recibidas por mes.
     """
-    data = StatisticsService.get_resueltos_por_mes()
+    filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    if not filterset.is_valid():
+        return Response(filterset.errors, status=400)
+    data = StatisticsService.get_resueltos_por_mes(filterset.qs)
     return Response(data)
 
 
@@ -50,9 +53,18 @@ def ResueltosPorMes(request):
 @permission_classes([IsAdmin])
 def TasaResolucionDepartamento(request):
     """
-    Calcula la tasa de resolución por departamento.
+    Calcula la tasa de resolución por departamento y mes.
+    FIX: Ahora soporta filtros y devuelve desglose mensual.
     """
-    data = StatisticsService.get_tasa_resolucion_departamento()
+
+    # 1. Aplicar filtros
+    filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    if not filterset.is_valid():
+        return Response(filterset.errors, status=400)
+
+    # 2. Llamar al servicio corregido pasando el QS filtrado
+    data = StatisticsService.get_tasa_resolucion_departamento(filterset.qs)
+    
     return Response(data)
 
 
@@ -73,28 +85,54 @@ def PublicacionesPorJuntaVecinalAPIView(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAdmin])
+@permission_classes([IsAuthenticatedOrAdmin])
 def junta_mas_critica(request):
     """
-    Identifica la junta más crítica usando el índice ponderado (Volumen + Retraso).
+    Identifica la junta más crítica.
+    FIX: Restaura la estructura JSON anidada {junta:..., metricas:...} de la rama Main.
     """
     filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
     
-    # Reutilizamos el análisis completo y sacamos la primera (ya viene ordenada)
+    # Obtenemos el ranking plano del servicio (Lista de {Junta_Vecinal: {...}})
     ranking = StatisticsService.get_analisis_criticidad_juntas(filterset.qs)
     
-    if ranking:
-        # Adaptamos la respuesta al formato que espera el frontend para este widget específico
-        top_1 = ranking[0]
-        # Devolvemos una estructura simplificada o la completa según necesite tu front
-        # Aquí reconstruyo lo que devolvía tu vista original 'junta_mas_critica' refactorizada, 
-        # pero con datos reales de criticidad.
-        return Response({
-            "junta": top_1["Junta_Vecinal"], # Incluye nombre, id, lat, lon
-            "metricas": top_1["Junta_Vecinal"] # Incluye índices
-        })
+    if not ranking:
+        return Response({"mensaje": "No hay datos suficientes"})
+
+    # --- ADAPTADOR DE COMPATIBILIDAD (Main Branch Format) ---
+    def formatear_junta(item_plano):
+        """Convierte el formato plano de Dev al formato anidado de Main"""
+        datos = item_plano["Junta_Vecinal"] # Extraemos el objeto principal
+        return {
+            "junta": {
+                "id": datos.get("id"),
+                "nombre": datos.get("nombre"),
+                "latitud": datos.get("latitud"),
+                "longitud": datos.get("longitud")
+            },
+            "metricas": {
+                "total_publicaciones": datos.get("total_publicaciones"),
+                "publicaciones_pendientes": datos.get("pendientes"),
+                "casos_urgentes": datos.get("urgentes"),
+                "tiempo_promedio_pendiente": item_plano.get("tiempo_promedio_pendiente", 0),
+                "porcentaje_pendientes": datos.get("porcentaje_pendientes"),
+                "porcentaje_urgentes": datos.get("porcentaje_urgentes"),
+                "indice_criticidad": datos.get("indice_criticidad")
+            }
+        }
+
+    # Reconstruimos la respuesta completa que espera el Dashboard antiguo
+    response_data = {
+        "total_juntas_analizadas": len(ranking),
+        "junta_mas_critica": formatear_junta(ranking[0]), # Top 1 formateado
+        "top_5_criticas": [formatear_junta(item) for item in ranking[:5]], # Top 5 formateado
+        # Calculamos promedio simple para mantener compatibilidad
+        "promedio_criticidad": round(
+            sum(r["Junta_Vecinal"]["indice_criticidad"] for r in ranking) / len(ranking), 2
+        ) if ranking else 0
+    }
         
-    return Response({"mensaje": "No hay datos suficientes"})
+    return Response(response_data)
 
 
 @api_view(["GET"])

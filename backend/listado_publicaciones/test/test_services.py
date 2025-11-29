@@ -129,15 +129,21 @@ class StatisticsServiceTest(TestCase):
         """Prueba que el cálculo de porcentaje sea correcto en el servicio"""
         stats = StatisticsService.get_tasa_resolucion_departamento()
         
-        # Deberíamos tener 1 departamento en la lista
-        self.assertEqual(len(stats), 1)
-        stat_depto = stats[0]
+        # 1. Verificar que el departamento existe en las claves del diccionario
+        self.assertIn("Depto A", stats)
         
-        self.assertEqual(stat_depto['departamento'], "Depto A")
-        self.assertEqual(stat_depto['total'], 4)
-        self.assertEqual(stat_depto['resueltos'], 3)
+        # 2. Obtener los datos del departamento
+        datos_depto = stats["Depto A"]
+        
+        # 3. Como no sabemos el mes exacto (depende de cuándo corras el test),
+        # tomamos el primer mes disponible (values())
+        stat_mes = list(datos_depto.values())[0]
+        
+        # 4. Validar los cálculos
+        self.assertEqual(stat_mes['total'], 4)
+        self.assertEqual(stat_mes['resueltos'], 3)
         # 3 de 4 es 75%
-        self.assertEqual(stat_depto['tasa'], 75.0)
+        self.assertEqual(stat_mes['tasa_resolucion'], 75.0)
 
     def test_resumen_estadisticas_servicio(self):
         """Verifica los totales globales"""

@@ -6,7 +6,7 @@ from django.utils import timezone
 from decimal import Decimal
 
 # Importamos desde las NUEVAS ubicaciones para verificar que el __init__.py funciona
-from listado_publicaciones.models import (
+from ..models import (
     Publicacion, 
     Categoria, 
     DepartamentoMunicipal, 

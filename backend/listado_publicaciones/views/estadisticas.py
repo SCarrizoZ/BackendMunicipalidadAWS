@@ -107,51 +107,18 @@ def PublicacionesPorJuntaVecinalAPIView(request):
 @permission_classes([IsAuthenticatedOrAdmin])
 def junta_mas_critica(request):
     """
-    Identifica la junta más crítica.
-    FIX: Restaura la estructura JSON anidada {junta:..., metricas:...} de la rama Main.
+    Identifica la junta más crítica usando la lógica completa y formato compatible con Main.
     """
+    # 1. Filtros
     filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    if not filterset.is_valid():
+        return Response(filterset.errors, status=400)
     
-    # Obtenemos el ranking plano del servicio (Lista de {Junta_Vecinal: {...}})
-    ranking = StatisticsService.get_analisis_criticidad_juntas(filterset.qs)
+    # 2. Llamar al nuevo WRAPPER
+    # Esto devuelve { "total_juntas...", "junta_mas_critica": { "junta":..., "metricas":... } }
+    data = StatisticsService.get_estadisticas_criticidad_completa(filterset.qs)
     
-    if not ranking:
-        return Response({"mensaje": "No hay datos suficientes"})
-
-    # --- ADAPTADOR DE COMPATIBILIDAD (Main Branch Format) ---
-    def formatear_junta(item_plano):
-        """Convierte el formato plano de Dev al formato anidado de Main"""
-        datos = item_plano["Junta_Vecinal"] # Extraemos el objeto principal
-        return {
-            "junta": {
-                "id": datos.get("id"),
-                "nombre": datos.get("nombre"),
-                "latitud": datos.get("latitud"),
-                "longitud": datos.get("longitud")
-            },
-            "metricas": {
-                "total_publicaciones": datos.get("total_publicaciones"),
-                "publicaciones_pendientes": datos.get("pendientes"),
-                "casos_urgentes": datos.get("urgentes"),
-                "tiempo_promedio_pendiente": item_plano.get("tiempo_promedio_pendiente", 0),
-                "porcentaje_pendientes": datos.get("porcentaje_pendientes"),
-                "porcentaje_urgentes": datos.get("porcentaje_urgentes"),
-                "indice_criticidad": datos.get("indice_criticidad")
-            }
-        }
-
-    # Reconstruimos la respuesta completa que espera el Dashboard antiguo
-    response_data = {
-        "total_juntas_analizadas": len(ranking),
-        "junta_mas_critica": formatear_junta(ranking[0]), # Top 1 formateado
-        "top_5_criticas": [formatear_junta(item) for item in ranking[:5]], # Top 5 formateado
-        # Calculamos promedio simple para mantener compatibilidad
-        "promedio_criticidad": round(
-            sum(r["Junta_Vecinal"]["indice_criticidad"] for r in ranking) / len(ranking), 2
-        ) if ranking else 0
-    }
-        
-    return Response(response_data)
+    return Response(data)
 
 
 @api_view(["GET"])

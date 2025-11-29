@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Reporte de Publicaciones</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 2cm;
+
+      @bottom-right {
+        content: "Página " counter(page) " de " counter(pages);
+        font-size: 10px;
+        font-family: Helvetica, sans-serif;
+      }
+    }
+
+    body {
+      font-family: Helvetica, sans-serif;
+      color: #333;
+      line-height: 1.5;
+    }
+
+    /* Encabezado */
+    .header {
+      width: 100%;
+      margin-bottom: 30px;
+      border-bottom: 3px solid #FFD700;
+      /* Amarillo */
+      padding-bottom: 10px;
+      position: relative;
+    }
+
+    .header::after {
+      content: '';
+      display: block;
+      border-bottom: 3px solid #FFA500;
+      /* Naranja */
+      margin-top: 3px;
+    }
+
+    .header-table {
+      width: 100%;
+    }
+
+    .header-logo img {
+      width: 80px;
+      height: auto;
+    }
+
+    .header-title {
+      text-align: center;
+      vertical-align: middle;
+    }
+
+    .header-title h1 {
+      font-size: 24px;
+      margin: 0;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
+    .header-title h2 {
+      font-size: 14px;
+      margin: 5px 0 0 0;
+      font-weight: normal;
+      color: #555;
+    }
+
+    /* Secciones */
+    .section-title {
+      background-color: #FFA500;
+      /* Naranja ReportLab */
+      color: white;
+      padding: 5px 10px;
+      font-weight: bold;
+      font-size: 14px;
+      margin-top: 20px;
+      margin-bottom: 10px;
+      border-radius: 4px;
+    }
+
+    /* Comentarios */
+    .comentarios-box {
+      background-color: #f9f9f9;
+      border: 1px solid #ddd;
+      padding: 10px;
+      font-size: 12px;
+      font-style: italic;
+      margin-bottom: 20px;
+    }
+
+    /* Tablas */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+      margin-bottom: 20px;
+    }
+
+    th {
+      background-color: #FFA500;
+      /* Naranja */
+      color: white;
+      font-weight: bold;
+      padding: 8px;
+      text-align: center;
+      border: 1px solid #333;
+    }
+
+    td {
+      border: 1px solid #333;
+      padding: 6px;
+      text-align: center;
+    }
+
+    tr:nth-child(even) {
+      background-color: #f2f2f2;
+    }
+
+    /* Gráficos */
+    .chart-container {
+      text-align: center;
+      margin-bottom: 30px;
+      page-break-inside: avoid;
+      /* Evita que el gráfico se corte */
+    }
+
+    .chart-img {
+      max-width: 100%;
+      height: auto;
+      max-height: 400px;
+      /* Controla la altura para que no ocupe toda la hoja */
+    }
+
+    /* Salto de página forzado antes de los gráficos si es necesario */
+    .page-break {
+      page-break-before: always;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="header">
+    <table class="header-table">
+      <tr>
+        <td class="header-logo" style="border:none; width: 100px; text-align: left;">
+          {% if logo %}
+          <img src="data:image/png;base64,{{ logo }}" alt="Logo Municipalidad">
+          {% endif %}
+        </td>
+        <td class="header-title" style="border:none;">
+          <h1>Reporte de Publicaciones</h1>
+          <h2>{{ fecha_reporte|date:"d \d\e F \d\e Y" }}</h2>
+          <p style="font-size: 12px; margin-top: 5px;">
+            Departamento: <strong>{{ departamento }}</strong>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="section-title">Comentarios / Observaciones</div>
+  <div class="comentarios-box">
+    {{ comentarios|linebreaks }}
+  </div>
+
+  {% if tasa_data %}
+  <div class="section-title">Tasa de Resolución por Departamento y Mes</div>
+  <table>
+    <thead>
+      <tr>
+        <th>Departamento</th>
+        <th>Mes</th>
+        <th>Total Recibidos</th>
+        <th>Resueltos</th>
+        <th>Tasa Resolución</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for fila in tasa_data %}
+      <tr>
+        <td style="text-align: left;">{{ fila.departamento }}</td>
+        <td>{{ fila.mes }}</td>
+        <td>{{ fila.total }}</td>
+        <td>{{ fila.resueltos }}</td>
+        <td style="font-weight: bold;">{{ fila.tasa }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No hay datos suficientes para calcular las tasas de resolución.</p>
+  {% endif %}
+
+  <div class="page-break"></div>
+
+  {% if bar_chart %}
+  <div class="chart-container">
+    <div class="section-title">Distribución por Mes y Categoría</div>
+    <img src="data:image/png;base64,{{ bar_chart }}" class="chart-img">
+  </div>
+  {% endif %}
+
+  {% if line_chart %}
+  <div class="chart-container">
+    <div class="section-title">Evolución de Resoluciones (Últimos 6 meses)</div>
+    <img src="data:image/png;base64,{{ line_chart }}" class="chart-img">
+  </div>
+  {% endif %}
+
+  {% if pie_chart %}
+  <div class="page-break"></div>
+  <div class="chart-container">
+    <div class="section-title">Porcentaje por Categoría</div>
+    <img src="data:image/png;base64,{{ pie_chart }}" class="chart-img">
+  </div>
+  {% endif %}
+
+</body>
+
+</html>

@@ -45,25 +45,6 @@ class PublicacionViewSet(viewsets.ModelViewSet):
             return PublicacionListSerializer
         return PublicacionCreateUpdateSerializer
 
-    """
-    No considerado ya que registra las acciones de los vecinos y el enfoque debe estar en los funcionarios.
-    Consultar con el cliente
-
-    def perform_create(self, serializer):
-        Auditoría para creación de publicaciones
-        instance = serializer.save()
-
-        # Crear auditoría
-        crear_auditoria(
-            usuario=self.request.user,
-            accion="CREATE",
-            modulo="Publicaciones",
-            descripcion=f"Creada publicación: {instance.titulo} (ID: {instance.id})",
-            es_exitoso=True,
-        )
-
-    """
-
     def perform_update(self, serializer):
         """Auditoría para actualización de publicaciones"""
         instance = serializer.instance

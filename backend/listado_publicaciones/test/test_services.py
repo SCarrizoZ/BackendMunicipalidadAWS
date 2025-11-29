@@ -1,8 +1,13 @@
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APIClient
+from django.core.files.uploadedfile import SimpleUploadedFile
+from unittest.mock import patch
 from decimal import Decimal
-from ..models import JuntaVecinal, Publicacion, Categoria, DepartamentoMunicipal, Usuario, SituacionPublicacion
+from ..models import JuntaVecinal, Publicacion, Categoria, DepartamentoMunicipal, Usuario, SituacionPublicacion, Evidencia
 from ..services.geo_service import GeoService
 from ..services.statistics_service import StatisticsService
+from ..services.media_service import MediaService
 
 class GeoServiceTest(TestCase):
     def setUp(self):
@@ -142,3 +147,75 @@ class StatisticsServiceTest(TestCase):
         self.assertEqual(resumen['resueltos'], 3)
         self.assertEqual(resumen['pendientes'], 1)
         self.assertEqual(resumen['tasa_resolucion'], 75.0)
+
+class EvidenciaUploadTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        
+        # 1. Crear usuario y autenticar
+        self.usuario = Usuario.objects.create(
+            rut="12345678-9", email="test@muni.cl", nombre="Vecino Test"
+        )
+        self.client.force_authenticate(user=self.usuario)
+
+        # 2. Crear datos base necesarios para una publicación
+        self.depto = DepartamentoMunicipal.objects.create(nombre="Aseo")
+        self.categoria = Categoria.objects.create(nombre="Basura", departamento=self.depto)
+        self.junta = JuntaVecinal.objects.create(
+            nombre_junta="Junta A", latitud=0, longitud=0, numero_calle=100
+        )
+        self.situacion = SituacionPublicacion.objects.create(nombre="Pendiente")
+
+        # 3. Crear la publicación a la que adjuntaremos la evidencia
+        self.publicacion = Publicacion.objects.create(
+            titulo="Basura en la calle",
+            usuario=self.usuario,
+            junta_vecinal=self.junta,
+            categoria=self.categoria,
+            departamento=self.depto,
+            situacion=self.situacion,
+            latitud=0, longitud=0
+        )
+
+    # El 'patch' intercepta la llamada al servicio real
+    @patch('listado_publicaciones.services.media_service.MediaService.upload_image')
+    def test_subir_evidencia_con_mock(self, mock_upload):
+        """
+        Prueba la creación de una evidencia simulando la respuesta de Cloudinary/MediaService.
+        """
+        # A. Configurar el comportamiento del Mock
+        # Le decimos: "Cuando te llamen, no hagas nada y devuelve este string"
+        mock_upload.return_value = "v1/evidencias/imagen_falsa.jpg"
+
+        # B. Crear un archivo falso en memoria (imagen dummy)
+        imagen_dummy = SimpleUploadedFile(
+            name='foto_denuncia.jpg',
+            content=b'imagen_falsa',
+            content_type='image/jpeg'
+        )
+
+        # C. Datos del POST
+        data = {
+            "publicacion_id": self.publicacion.id,
+            "archivo": imagen_dummy,
+            "nombre": "Foto de la basura",
+            "extension": "jpg"
+        }
+
+        # D. Ejecutar la petición
+        # Nota: format='multipart' es OBLIGATORIO para subir archivos
+        response = self.client.post('/api/v1/evidencias/', data, format='multipart')
+
+        # E. Aserciones (Validaciones)
+        
+        # 1. Verificar que la API respondió 201 Created
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # 2. Verificar que nuestro servicio fue llamado (y no Cloudinary real)
+        mock_upload.assert_called_once() 
+
+        # 3. Verificar que se guardó en la base de datos con la URL simulada
+        evidencia_creada = Evidencia.objects.get(id=response.data['id'])
+        # Convertimos el objeto CloudinaryResource a string para compararlo
+        self.assertEqual(str(evidencia_creada.archivo), "evidencias/imagen_falsa")
+        self.assertEqual(evidencia_creada.publicacion, self.publicacion)

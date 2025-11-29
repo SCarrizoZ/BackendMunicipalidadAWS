@@ -1,58 +1,9 @@
-
 from rest_framework import serializers
 from django.db.models import Q
-import math
 import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from ..models import *
-
-def calcular_distancia_haversine(lat1, lon1, lat2, lon2):
-    """
-    Calcula la distancia entre dos puntos geográficos usando la fórmula de Haversine.
-    Retorna la distancia en kilómetros.
-    """
-    # Convertir grados a radianes
-    lat1, lon1, lat2, lon2 = map(
-        math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)]
-    )
-
-    # Fórmula de Haversine
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
-    c = 2 * math.asin(math.sqrt(a))
-
-    # Radio de la Tierra en kilómetros
-    r = 6371
-    return c * r
-
-
-def encontrar_junta_vecinal_mas_cercana(latitud, longitud):
-    """
-    Encuentra la junta vecinal más cercana a las coordenadas dadas.
-    Retorna la instancia de JuntaVecinal más cercana.
-    """
-    juntas_vecinales = JuntaVecinal.objects.filter(estado="habilitado")
-
-    if not juntas_vecinales.exists():
-        return None
-
-    distancia_minima = float("inf")
-    junta_mas_cercana = None
-
-    for junta in juntas_vecinales:
-        distancia = calcular_distancia_haversine(
-            latitud, longitud, junta.latitud, junta.longitud
-        )
-
-        if distancia < distancia_minima:
-            distancia_minima = distancia
-            junta_mas_cercana = junta
-
-    return junta_mas_cercana
+from ..services.geo_service import GeoService
 
 
 # Serializer para Usuario
@@ -560,7 +511,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
 
             # Auto-detección para creación
             if auto_detectar and not data.get("junta_vecinal"):
-                junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(
+                junta_mas_cercana = GeoService.encontrar_junta_vecinal_mas_cercana(
                     latitud, longitud
                 )
                 if junta_mas_cercana:
@@ -592,7 +543,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
                 )
 
             # Auto-detección para actualización
-            junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(latitud, longitud)
+            junta_mas_cercana = GeoService.encontrar_junta_vecinal_mas_cercana(latitud, longitud)
             if junta_mas_cercana:
                 data["junta_vecinal"] = junta_mas_cercana
             else:
@@ -619,7 +570,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         # Calcular y almacenar distancia para la respuesta
         if instance.junta_vecinal:
             try:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     instance.latitud,
                     instance.longitud,
                     instance.junta_vecinal.latitud,
@@ -638,7 +589,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         # Calcular y almacenar distancia para la respuesta
         if updated_instance.junta_vecinal:
             try:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     updated_instance.latitud,
                     updated_instance.longitud,
                     updated_instance.junta_vecinal.latitud,
@@ -673,7 +624,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         # Calcular si no existe
         if obj.junta_vecinal and obj.latitud and obj.longitud:
             try:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     obj.latitud,
                     obj.longitud,
                     obj.junta_vecinal.latitud,

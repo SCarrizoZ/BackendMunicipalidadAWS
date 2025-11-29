@@ -7,7 +7,6 @@ from ..models import (
     RespuestaMunicipal,
     EvidenciaRespuesta,
     Usuario,
-    Publicacion,
 )
 from ..serializers.v1 import (
     CategoriaSerializer,
@@ -37,6 +36,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import status
 from ..services.notifications import ExpoNotificationService
+from ..services.geo_service import GeoService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -133,13 +133,8 @@ class JuntasVecinalesViewSet(AuditMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Importar la función desde serializers
-            from ..serializers.v1 import (
-                encontrar_junta_vecinal_mas_cercana,
-                calcular_distancia_haversine,
-            )
-
-            junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(
+            # Usar GeoService
+            junta_mas_cercana = GeoService.encontrar_junta_vecinal_mas_cercana(
                 float(latitud), float(longitud)
             )
 
@@ -150,7 +145,7 @@ class JuntasVecinalesViewSet(AuditMixin, viewsets.ModelViewSet):
                 )
 
             # Calcular la distancia
-            distancia = calcular_distancia_haversine(
+            distancia = GeoService.calcular_distancia_haversine(
                 float(latitud),
                 float(longitud),
                 junta_mas_cercana.latitud,
@@ -191,8 +186,7 @@ class JuntasVecinalesViewSet(AuditMixin, viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            # Importar la función desde serializers
-            from ..serializers.v1 import calcular_distancia_haversine
+
 
             lat_float = float(latitud)
             lon_float = float(longitud)
@@ -209,7 +203,7 @@ class JuntasVecinalesViewSet(AuditMixin, viewsets.ModelViewSet):
             # Calcular distancias y ordenar
             juntas_con_distancia = []
             for junta in juntas_vecinales:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     lat_float, lon_float, junta.latitud, junta.longitud
                 )
                 juntas_con_distancia.append({"junta": junta, "distancia": distancia})

@@ -1,30 +1,10 @@
+
 from rest_framework import serializers
 from django.db.models import Q
 import math
-from ..models import (
-    Usuario,
-    Categoria,
-    DepartamentoMunicipal,
-    UsuarioDepartamento,
-    Evidencia,
-    EvidenciaRespuesta,
-    JuntaVecinal,
-    Publicacion,
-    RespuestaMunicipal,
-    SituacionPublicacion,
-    AnuncioMunicipal,
-    ImagenAnuncio,
-    HistorialModificaciones,
-    Auditoria,
-    Columna,
-    Tarea,
-    Comentario,
-    Tablero,
-    DispositivoNotificacion,
-)
 import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
+from ..models import *
 
 def calcular_distancia_haversine(lat1, lon1, lat2, lon2):
     """
@@ -539,6 +519,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
             "junta_vecinal_info",
             "distancia_a_junta_km",
         ]
+        read_only_fields = ["departamento", "fecha_publicacion", "codigo", "situacion"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -628,6 +609,11 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Crear publicación con auditoría implícita del auto-detect"""
+        # Asignar departamento basado en la categoría
+        categoria = validated_data.get('categoria')
+        if categoria:
+            validated_data['departamento'] = categoria.departamento
+
         instance = super().create(validated_data)
 
         # Calcular y almacenar distancia para la respuesta

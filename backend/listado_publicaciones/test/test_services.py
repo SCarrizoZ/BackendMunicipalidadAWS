@@ -129,14 +129,15 @@ class StatisticsServiceTest(TestCase):
         """Prueba que el cálculo de porcentaje sea correcto en el servicio"""
         stats = StatisticsService.get_tasa_resolucion_departamento()
         
-        # 1. Verificar que el departamento existe en las claves del diccionario
+        # 1. Verificar que el departamento existe como CLAVE del diccionario
+        # (El servicio devuelve { "Nombre Depto": { "Mes": datos } })
         self.assertIn("Depto A", stats)
         
         # 2. Obtener los datos del departamento
         datos_depto = stats["Depto A"]
         
-        # 3. Como no sabemos el mes exacto (depende de cuándo corras el test),
-        # tomamos el primer mes disponible (values())
+        # 3. Como no sabemos el mes exacto (depende de la fecha actual),
+        # tomamos el primer mes disponible en los valores
         stat_mes = list(datos_depto.values())[0]
         
         # 4. Validar los cálculos

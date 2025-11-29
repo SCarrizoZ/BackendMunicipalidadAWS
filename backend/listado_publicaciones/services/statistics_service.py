@@ -14,13 +14,13 @@ from ..models import (
 )
 from ..utils.constants import MESES_ESPANOL
 
-
 class StatisticsService:
     MESES_ESPANOL = MESES_ESPANOL
 
     @staticmethod
-    def get_resumen_estadisticas():
-        data = Publicacion.objects.aggregate(
+    def get_resumen_estadisticas(queryset_filtro=None):
+        queryset_filtro = Publicacion.objects.all() if queryset_filtro is None else queryset_filtro
+        data = queryset_filtro.aggregate(
             total=Count("id"),
             resueltos=Count("id", filter=Q(situacion__nombre="Resuelto")),
             pendientes=Count("id", filter=Q(situacion__nombre="Pendiente")),
@@ -39,12 +39,11 @@ class StatisticsService:
         }
 
     @staticmethod
-    def get_publicaciones_por_mes_categoria():
-        fecha_inicio = timezone.now() - timezone.timedelta(days=180)
+    def get_publicaciones_por_mes_categoria(queryset_filtro=None):
+        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
 
         datos = (
-            Publicacion.objects.filter(fecha_publicacion__gte=fecha_inicio)
-            .annotate(mes=TruncMonth("fecha_publicacion"))
+            qs.annotate(mes=TruncMonth("fecha_publicacion"))
             .values("mes", "categoria__nombre")
             .annotate(total=Count("id"))
             .order_by("mes")
@@ -61,19 +60,20 @@ class StatisticsService:
         return list(meses_dict.values())
 
     @staticmethod
-    def get_publicaciones_por_categoria():
+    def get_publicaciones_por_categoria(queryset_filtro=None):
+        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
         return (
-            Publicacion.objects.values("categoria__nombre")
+            qs.values("categoria__nombre")
             .annotate(total=Count("id"))
             .order_by("-total")
         )
 
     @staticmethod
     def get_resueltos_por_mes(queryset_filtro=None):
-        queryset_filtro = Publicacion.objects.all() if queryset_filtro is None else queryset_filtro
+        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
 
         datos = (
-            queryset_filtro
+            qs
             .annotate(mes=TruncMonth("fecha_publicacion"))
             .values("mes")
             .annotate(

@@ -147,13 +147,14 @@ class EstadisticasViewTest(APITestCase):
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
-        # CORRECCIÓN: La estructura ahora es response -> junta_mas_critica -> junta -> nombre
+        # CORRECCIÓN: La estructura es response -> junta_mas_critica -> junta -> nombre
         self.assertIn('junta_mas_critica', response.data)
         
         datos_criticos = response.data['junta_mas_critica']
         self.assertEqual(datos_criticos['junta']['nombre'], "Junta Stats")
         
-        # CORRECCIÓN: Verificar métricas dentro del objeto anidado
+        # CORRECCIÓN: Verificar métricas con los nombres de clave correctos
+        # El adaptador en la vista mapea 'pendientes' -> 'publicaciones_pendientes'
         self.assertEqual(datos_criticos['metricas']['publicaciones_pendientes'], 1)
 
 class ReportesViewTest(APITestCase):

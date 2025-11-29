@@ -6,13 +6,24 @@ from ..services.statistics_service import StatisticsService
 from ..filters import PublicacionFilter
 from ..models import Publicacion
 
+# Helper para no repetir código de filtrado
+def get_filtered_queryset(request):
+    filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    if not filterset.is_valid():
+        return None, filterset.errors
+    return filterset.qs, None
+
 @api_view(["GET"])
 @permission_classes([IsAdmin])
 def ResumenEstadisticas(request):
     """
-    Retorna estadísticas generales para el dashboard.
+    Retorna estadísticas generales.
+    CORRECCIÓN: Ahora aplica filtros globales (fecha, departamento, etc.)
     """
-    data = StatisticsService.get_resumen_estadisticas()
+    qs, errors = get_filtered_queryset(request)
+    if errors: return Response(errors, status=400)
+    
+    data = StatisticsService.get_resumen_estadisticas(qs)
     return Response(data)
 
 
@@ -20,9 +31,13 @@ def ResumenEstadisticas(request):
 @permission_classes([IsAdmin])
 def PublicacionesPorMesyCategoria(request):
     """
-    Retorna la cantidad de publicaciones por mes y categoría.
+    Retorna publicaciones por mes y categoría.
+    CORRECCIÓN: Ahora respeta el rango de fechas seleccionado.
     """
-    data = StatisticsService.get_publicaciones_por_mes_categoria()
+    qs, errors = get_filtered_queryset(request)
+    if errors: return Response(errors, status=400)
+
+    data = StatisticsService.get_publicaciones_por_mes_categoria(qs)
     return Response(data)
 
 
@@ -30,9 +45,13 @@ def PublicacionesPorMesyCategoria(request):
 @permission_classes([IsAdmin])
 def PublicacionesPorCategoria(request):
     """
-    Retorna la cantidad total de publicaciones por categoría.
+    Retorna total por categoría.
+    CORRECCIÓN: Ahora permite filtrar por zona o fecha.
     """
-    data = StatisticsService.get_publicaciones_por_categoria()
+    qs, errors = get_filtered_queryset(request)
+    if errors: return Response(errors, status=400)
+
+    data = StatisticsService.get_publicaciones_por_categoria(qs)
     return Response(data)
 
 

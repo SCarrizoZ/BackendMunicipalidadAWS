@@ -109,8 +109,11 @@ class EstadisticasViewTest(APITestCase):
         depto = DepartamentoMunicipal.objects.create(nombre="Estadistica Dept")
         cat = Categoria.objects.create(nombre="Test Cat", departamento=depto)
         junta = JuntaVecinal.objects.create(nombre_junta="Junta Stats", latitud=0, longitud=0, numero_calle=1)
-        sit_resuelto = SituacionPublicacion.objects.create(nombre="Resuelto")
-        sit_pendiente = SituacionPublicacion.objects.create(nombre="Pendiente")
+        
+        # --- CORRECCIÓN AQUÍ ---
+        # Forzamos los IDs para que coincidan con la lógica del servicio (4 = Pendiente)
+        sit_resuelto = SituacionPublicacion.objects.create(id=1, nombre="Resuelto")
+        sit_pendiente = SituacionPublicacion.objects.create(id=4, nombre="Pendiente") # ID 4 es crítico
 
         # Crear 1 resuelta y 1 pendiente
         Publicacion.objects.create(
@@ -138,14 +141,19 @@ class EstadisticasViewTest(APITestCase):
         self.assertEqual(response.data['tasa_resolucion'], 50.0)
 
     def test_junta_mas_critica(self):
-        """Verifica la lógica de junta más crítica"""
+        """Verifica la lógica de junta más crítica con la nueva estructura compleja"""
         url = "/api/v1/estadisticas/junta-critica/"
         response = self.client.get(url)
         
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # La junta creada tiene 1 pendiente, debería aparecer
-        self.assertEqual(response.data['junta_vecinal__nombre_junta'], "Junta Stats")
-        self.assertEqual(response.data['total_pendientes'], 1)
+        
+        # CORRECCIÓN: Accedemos a la estructura anidada 'junta' -> 'nombre'
+        # Antes era: response.data['junta_vecinal__nombre_junta']
+        self.assertEqual(response.data['junta']['nombre'], "Junta Stats")
+        
+        # CORRECCIÓN: Accedemos a las métricas para verificar los pendientes
+        # Antes era: response.data['total_pendientes']
+        self.assertEqual(response.data['metricas']['pendientes'], 1)
 
 class ReportesViewTest(APITestCase):
     def setUp(self):

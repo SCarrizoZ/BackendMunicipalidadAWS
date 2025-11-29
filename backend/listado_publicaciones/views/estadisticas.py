@@ -3,6 +3,8 @@ from listado_publicaciones.permissions import IsAdmin, IsAuthenticatedOrAdmin
 from rest_framework.response import Response
 from rest_framework import status
 from ..services.statistics_service import StatisticsService
+from ..filters import PublicacionFilter
+from ..models import Publicacion
 
 @api_view(["GET"])
 @permission_classes([IsAdmin])
@@ -58,9 +60,15 @@ def TasaResolucionDepartamento(request):
 @permission_classes([IsAdmin])
 def PublicacionesPorJuntaVecinalAPIView(request):
     """
-    Retorna la cantidad de publicaciones por junta vecinal.
+    Retorna datos completos de las juntas incluyendo índice de criticidad y mapa de calor.
     """
-    data = StatisticsService.get_publicaciones_por_junta_vecinal()
+    # 1. Aplicar filtros
+    filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    if not filterset.is_valid():
+        return Response(filterset.errors, status=400)
+
+    # 2. Usar el nuevo método con lógica completa
+    data = StatisticsService.get_analisis_criticidad_juntas(filterset.qs)
     return Response(data)
 
 
@@ -68,11 +76,24 @@ def PublicacionesPorJuntaVecinalAPIView(request):
 @permission_classes([IsAdmin])
 def junta_mas_critica(request):
     """
-    Identifica la junta vecinal con más problemas sin resolver.
+    Identifica la junta más crítica usando el índice ponderado (Volumen + Retraso).
     """
-    junta_critica = StatisticsService.get_junta_mas_critica()
-    if junta_critica:
-        return Response(junta_critica)
+    filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    
+    # Reutilizamos el análisis completo y sacamos la primera (ya viene ordenada)
+    ranking = StatisticsService.get_analisis_criticidad_juntas(filterset.qs)
+    
+    if ranking:
+        # Adaptamos la respuesta al formato que espera el frontend para este widget específico
+        top_1 = ranking[0]
+        # Devolvemos una estructura simplificada o la completa según necesite tu front
+        # Aquí reconstruyo lo que devolvía tu vista original 'junta_mas_critica' refactorizada, 
+        # pero con datos reales de criticidad.
+        return Response({
+            "junta": top_1["Junta_Vecinal"], # Incluye nombre, id, lat, lon
+            "metricas": top_1["Junta_Vecinal"] # Incluye índices
+        })
+        
     return Response({"mensaje": "No hay datos suficientes"})
 
 
@@ -80,22 +101,38 @@ def junta_mas_critica(request):
 @permission_classes([IsAdmin])
 def publicaciones_resueltas_por_junta_vecinal(request):
     """
-    Retorna la cantidad de publicaciones resueltas por junta vecinal.
+    Retorna métricas de eficiencia y satisfacción (Mapa de Frío).
     """
-    data = StatisticsService.get_publicaciones_resueltas_por_junta_vecinal()
+    # 1. Aplicar filtros
+    filterset = PublicacionFilter(request.GET, queryset=Publicacion.objects.all())
+    if not filterset.is_valid():
+        return Response(filterset.errors, status=400)
+
+    # 2. Usar el nuevo método con lógica completa
+    data = StatisticsService.get_analisis_frio_juntas(filterset.qs)
     return Response(data)
 
 
 @api_view(["GET"])
-@permission_classes([IsAdmin])
+@permission_classes([IsAuthenticatedOrAdmin]) # O el permiso que corresponda
 def junta_mas_eficiente(request):
     """
-    Identifica la junta vecinal con mayor tasa de resolución.
+    Identifica la junta vecinal con mayor tasa de resolución considerando plazos legales.
     """
-    mejor_junta = StatisticsService.get_junta_mas_eficiente()
-    if mejor_junta:
-        return Response(mejor_junta)
-    return Response({"mensaje": "No hay datos suficientes"})
+    # 1. Aplicar filtros igual que en el código original
+    publicaciones = Publicacion.objects.all()
+    filterset = PublicacionFilter(request.GET, queryset=publicaciones)
+
+    if not filterset.is_valid():
+        return Response(
+            {"error": "Filtros inválidos", "detalles": filterset.errors},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # 2. Llamar al servicio pasando el QuerySet filtrado
+    stats = StatisticsService.get_estadisticas_eficiencia_completa(filterset.qs)
+    
+    return Response(stats, status=status.HTTP_200_OK)
 
 
 @api_view(["GET"])

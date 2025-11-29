@@ -14,6 +14,7 @@ from ..models import (
 )
 from ..utils.constants import MESES_ESPANOL
 
+
 class StatisticsService:
     MESES_ESPANOL = MESES_ESPANOL
 
@@ -29,6 +30,7 @@ class StatisticsService:
         total = data["total"] or 0
         resueltos = data["resueltos"] or 0
         tasa_resolucion = (resueltos / total * 100) if total > 0 else 0
+
         return {
             "total_publicaciones": total,
             "resueltos": resueltos,
@@ -49,6 +51,7 @@ class StatisticsService:
 
         meses_dict = {}
         for dato in datos:
+            if not dato["mes"]: continue
             mes_nombre = StatisticsService.MESES_ESPANOL[dato["mes"].month]
             if mes_nombre not in meses_dict:
                 meses_dict[mes_nombre] = {"name": mes_nombre}
@@ -84,8 +87,7 @@ class StatisticsService:
 
         respuesta = []
         for dato in datos:
-            if not dato["mes"]: 
-                continue
+            if not dato["mes"]: continue
             respuesta.append(
                 {
                     "name": StatisticsService.MESES_ESPANOL[dato["mes"].month],
@@ -98,14 +100,7 @@ class StatisticsService:
 
     @staticmethod
     def get_tasa_resolucion_departamento(queryset_filtro=None):
-        """
-        Calcula la tasa de resolución por departamento y por MES.
-        Restaura la granularidad temporal de la rama Main.
-        """
-        # 1. Usar el queryset filtrado o todos
         qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
-
-        # 2. Agrupar por Mes Y Departamento (Lógica restaurada)
         datos = (
             qs.annotate(
                 mes=TruncMonth("fecha_publicacion"),
@@ -118,57 +113,38 @@ class StatisticsService:
             )
             .order_by("mes", "departamento_nombre")
         )
-
-        # 3. Formatear como Diccionario anidado { Depto: { Mes: Stats } }
-        # Esto coincide con la estructura de VistaAnterior.py
         respuesta = {}
         for dato in datos:
-            # Manejo seguro de fecha
-            if not dato["mes"]: 
-                continue
-            
+            if not dato["mes"]: continue
             mes_nombre = StatisticsService.MESES_ESPANOL[dato["mes"].month]
             depto = dato["departamento_nombre"]
             total = dato["total"]
             resueltos = dato["resueltos"]
-            
-            # Cálculo de tasa
             tasa = (resueltos / total * 100) if total > 0 else 0
-
             if depto not in respuesta:
                 respuesta[depto] = {}
-
             respuesta[depto][mes_nombre] = {
                 "total": total,
                 "resueltos": resueltos,
                 "tasa_resolucion": round(tasa, 2),
             }
-
         return respuesta
 
     @staticmethod
-    def get_publicaciones_por_junta_vecinal():
+    def get_publicaciones_por_junta_vecinal(queryset_filtro=None):
+        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
         return (
-            Publicacion.objects.values("junta_vecinal__nombre_junta")
+            qs.values("junta_vecinal__nombre_junta")
             .annotate(total=Count("id"))
             .order_by("-total")[:10]
         )
 
-    @staticmethod
-    def get_publicaciones_resueltas_por_junta_vecinal():
-        return (
-            Publicacion.objects.filter(situacion__nombre="Resuelto")
-            .values("junta_vecinal__nombre_junta")
-            .annotate(total=Count("id"))
-            .order_by("-total")[:10]
-        )
+    # -------------------------------------------------------
+    # LÓGICA CRÍTICA (Junta más crítica)
+    # -------------------------------------------------------
 
     @staticmethod
     def get_analisis_criticidad_juntas(queryset_filtro=None):
-        """
-        MOTOR DE CÁLCULO: Calcula el índice de criticidad usando Pandas y días hábiles.
-        Retorna una lista plana de diccionarios.
-        """
         qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
         qs = qs.select_related('junta_vecinal', 'situacion', 'categoria')
 
@@ -178,8 +154,7 @@ class StatisticsService:
 
         for pub in qs:
             junta = pub.junta_vecinal
-            if not junta: 
-                continue
+            if not junta: continue
 
             if junta.id not in juntas_data:
                 juntas_data[junta.id] = {
@@ -193,23 +168,16 @@ class StatisticsService:
             
             data = juntas_data[junta.id]
             data["total"] += 1
-            
             cat_name = pub.categoria.nombre
             data["categorias_conteo"][cat_name] = data["categorias_conteo"].get(cat_name, 0) + 1
 
-            # Lógica Pendiente: ID 4 es situación inicial (ajustar según tu BD)
-            # O si es None
             if pub.situacion_id == 4 or pub.situacion is None:
                 data["pendientes"] += 1
                 try:
-                    # Días naturales
                     dias_naturales = (ahora.date() - pub.fecha_publicacion.date()).days
                     data["dias_pendientes_acum"] += dias_naturales
-
-                    # Días hábiles (Regla de Negocio)
                     rango = pd.bdate_range(start=pub.fecha_publicacion.date(), end=ahora.date())
                     dias_habiles = len(rango) - 1
-                    
                     if dias_habiles > DIAS_HABILES_LIMITE:
                         data["vencidas"] += 1
                 except Exception:
@@ -218,17 +186,13 @@ class StatisticsService:
         resultados = []
         for j_id, d in juntas_data.items():
             total = d["total"]
-            if total == 0: 
-                continue
+            if total == 0: continue
 
-            # Fórmulas
             factor_volumen = min(total / 20, 1) * 100
             porcentaje_vencidas = (d["vencidas"] / total) * 100
             indice_criticidad = (factor_volumen * 0.5) + (porcentaje_vencidas * 0.5)
-            
             tiempo_prom = d["dias_pendientes_acum"] // d["pendientes"] if d["pendientes"] > 0 else 0
 
-            # Estructura PLANA para gráficos generales
             junta_dict = {
                 "Junta_Vecinal": {
                     "id": d["junta_obj"].id,
@@ -252,13 +216,8 @@ class StatisticsService:
 
     @staticmethod
     def get_estadisticas_criticidad_completa(queryset_filtro=None):
-        """
-        WRAPPER DE COMPATIBILIDAD: Toma el cálculo complejo y lo formatea
-        para que coincida con el JSON de la rama Main (anidado).
-        """
         ranking = StatisticsService.get_analisis_criticidad_juntas(queryset_filtro)
-
-        # Función auxiliar para mapear de 'Plano' (Dev) a 'Anidado' (Main)
+        
         def formatear_item(item_plano):
             datos = item_plano["Junta_Vecinal"]
             return {
@@ -271,7 +230,7 @@ class StatisticsService:
                 "metricas": {
                     "total_publicaciones": datos.get("total_publicaciones"),
                     "publicaciones_pendientes": datos.get("pendientes"),
-                    "casos_urgentes": datos.get("urgentes"), # Main usaba esto para lo crítico
+                    "casos_urgentes": datos.get("urgentes"),
                     "cantidad_vencidas_legal": datos.get("urgentes"),
                     "tiempo_promedio_pendiente": item_plano.get("tiempo_promedio_pendiente"),
                     "porcentaje_pendientes": datos.get("porcentaje_pendientes"),
@@ -292,236 +251,58 @@ class StatisticsService:
             "promedio_criticidad": promedio,
             "criterios_calculo": {
                 "factor_volumen": "50% del índice",
-                "factor_retraso_legal": "50% del índice (Publicaciones > 20 días hábiles)",
-                "nota": "Cálculo simplificado según requerimiento legal",
-                "rango_indice": "0-100 (mayor = más crítico)",
+                "factor_retraso_legal": "50% del índice",
             },
         }
 
-    @staticmethod
-    def get_estadisticas_eficiencia_completa(request_filters=None):            
-        ranking = StatisticsService.get_analisis_eficiencia_juntas(request_filters)
-        # Formateo para compatibilidad con main
-        top_5 = []
-        for item in ranking[:5]:
-             top_5.append({
-                 "junta": {
-                     "id": item["Junta_Vecinal"]["id"],
-                     "nombre": item["Junta_Vecinal"]["nombre"],
-                     "latitud": item["Junta_Vecinal"]["latitud"],
-                     "longitud": item["Junta_Vecinal"]["longitud"]
-                 },
-                 "metricas": {
-                     "total_publicaciones": item["Junta_Vecinal"]["total_publicaciones"],
-                     "publicaciones_pendientes": item["Junta_Vecinal"]["pendientes"],
-                     "casos_urgentes": item["Junta_Vecinal"]["urgentes"],
-                     "cantidad_vencidas_legal": item["Junta_Vecinal"]["urgentes"],
-                     "tiempo_promedio_pendiente": item.get("tiempo_promedio_pendiente"),
-                     "porcentaje_pendientes": item["Junta_Vecinal"]["porcentaje_pendientes"],
-                     "porcentaje_urgentes": item["Junta_Vecinal"]["porcentaje_urgentes"],
-                     "indice_criticidad": item["Junta_Vecinal"]["indice_criticidad"]
-                 }
-             })
-
-        promedio = 0
-        if ranking:
-            total_indices = sum(r["Junta_Vecinal"]["indice_criticidad"] for r in ranking)
-            promedio = round(total_indices / len(ranking), 2)
-
-        return {
-            "total_juntas_analizadas": len(ranking),
-            "junta_mas_eficiente": ranking[0] if ranking else None,
-            "top_5_eficientes": top_5,
-            "promedio_eficiencia": promedio,
-            "criterios_calculo": {
-                "factor_volumen": "50% del índice (Capacidad de gestión)",
-                "factor_cumplimiento": "50% del índice (Resoluciones dentro de 20 días hábiles sobre el total)",
-                "nota": "Cálculo alineado a normativa legal de 20 días hábiles",
-            },
-        }
-
-    @staticmethod
-    def get_analisis_criticidad_juntas(queryset_filtro=None):
-        """
-        Calcula el índice de criticidad para todas las juntas.
-        Recupera la lógica de negocio: Volumen + Retraso Legal (Días Hábiles).
-        """
-        import pandas as pd # Asegúrate de tener este import arriba
-        
-        # 1. QuerySet Base Optimizado
-        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
-        qs = qs.select_related('junta_vecinal', 'situacion')
-
-        juntas_data = {}
-        ahora = timezone.now()
-        DIAS_HABILES_LIMITE = 20
-
-        # 2. Procesamiento (Iteración única sobre resultados cacheados)
-        for pub in qs:
-            junta = pub.junta_vecinal
-            if not junta:
-                continue
-
-            if junta.id not in juntas_data:
-                juntas_data[junta.id] = {
-                    "junta_obj": junta,
-                    "total": 0,
-                    "pendientes": 0,
-                    "vencidas": 0,
-                    "dias_pendientes_acum": 0,
-                    "categorias_conteo": {} 
-                }
-            
-            data = juntas_data[junta.id]
-            data["total"] += 1
-            
-            # Conteo de Categorías para el gráfico del frontend
-            cat_name = pub.categoria.nombre
-            data["categorias_conteo"][cat_name] = data["categorias_conteo"].get(cat_name, 0) + 1
-
-            # Lógica de Pendientes (ID 4 o Null)
-            # Ajusta la condición según tu modelo exacto de Situacion
-            es_pendiente = pub.situacion_id == 4 or pub.situacion is None
-            
-            if es_pendiente:
-                data["pendientes"] += 1
-                
-                # Cálculo de días hábiles de retraso
-                try:
-                    # Días naturales
-                    dias_naturales = (ahora.date() - pub.fecha_publicacion.date()).days
-                    data["dias_pendientes_acum"] += dias_naturales
-
-                    # Días hábiles (Regla de Negocio)
-                    rango = pd.bdate_range(start=pub.fecha_publicacion.date(), end=ahora.date())
-                    dias_habiles = len(rango) - 1
-                    
-                    if dias_habiles > DIAS_HABILES_LIMITE:
-                        data["vencidas"] += 1
-                except Exception:
-                    pass
-
-        # 3. Calcular Índices y Formatear
-        resultados = []
-        for j_id, d in juntas_data.items():
-            total = d["total"]
-            if total == 0:
-                continue
-
-            # Fórmulas Originales Restauradas
-            factor_volumen = min(total / 20, 1) * 100
-            porcentaje_vencidas = (d["vencidas"] / total) * 100
-            indice_criticidad = (factor_volumen * 0.5) + (porcentaje_vencidas * 0.5)
-            
-            tiempo_prom = d["dias_pendientes_acum"] // d["pendientes"] if d["pendientes"] > 0 else 0
-
-            junta_dict = {
-                "Junta_Vecinal": {
-                    "id": d["junta_obj"].id,
-                    "nombre": d["junta_obj"].nombre_junta,
-                    "latitud": d["junta_obj"].latitud,
-                    "longitud": d["junta_obj"].longitud,
-                    "total_publicaciones": total,
-                    "pendientes": d["pendientes"],
-                    "urgentes": d["vencidas"], # Métrica clave recuperada
-                    "indice_criticidad": round(indice_criticidad, 2),
-                    "porcentaje_pendientes": round(d["pendientes"]/total*100, 2),
-                    "porcentaje_urgentes": round(porcentaje_vencidas, 2)
-                },
-                "tiempo_promedio_pendiente": f"{tiempo_prom} días",
-            }
-            # Agregar conteo de categorías dinámicamente (requerido por frontend)
-            junta_dict.update(d["categorias_conteo"])
-            
-            resultados.append(junta_dict)
-
-        # Ordenar por defecto por índice de criticidad
-        resultados.sort(key=lambda x: x["Junta_Vecinal"]["indice_criticidad"], reverse=True)
-        return resultados
+    # -------------------------------------------------------
+    # LÓGICA EFICIENCIA / FRÍO (Junta más eficiente y Mapa de Frío)
+    # -------------------------------------------------------
 
     @staticmethod
     def get_analisis_frio_juntas(queryset_filtro=None):
-        """
-        Calcula estadísticas de publicaciones resueltas (Mapa de Frío).
-        Recupera: Eficiencia, Tiempos de resolución y Calificación de vecinos.
-        """
         qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
-        
-        # Pre-carga crítica: Respuestas municipales con sus puntuaciones
-        qs = qs.select_related('junta_vecinal', 'situacion', 'categoria')\
-               .prefetch_related('respuestamunicipal_set')
+        qs = qs.select_related('junta_vecinal', 'situacion', 'categoria').prefetch_related('respuestamunicipal_set')
 
         juntas_data = {}
-        
         for pub in qs:
             junta = pub.junta_vecinal
-            if not junta:
-                continue
+            if not junta: continue
             
             if junta.id not in juntas_data:
                 juntas_data[junta.id] = {
-                    "junta": junta,
-                    "total": 0,
-                    "resueltas": 0,
-                    "alta_prioridad_resueltas": 0,
-                    "dias_resolucion_sum": 0,
-                    "suma_puntuacion": 0,
-                    "count_puntuacion": 0,
-                    "ultima_resolucion": None,
-                    "categorias": {}
+                    "junta": junta, "total": 0, "resueltas": 0, "alta_prioridad_resueltas": 0,
+                    "dias_resolucion_sum": 0, "suma_puntuacion": 0, "count_puntuacion": 0,
+                    "ultima_resolucion": None, "categorias": {}
                 }
-            
             d = juntas_data[junta.id]
             d["total"] += 1
             
-            # Lógica: NO Pendiente (ID 4) y NO Null = Resuelta/En Proceso avanzado
             if pub.situacion_id != 4 and pub.situacion is not None:
                 d["resueltas"] += 1
-                
-                # Categorías (solo de las resueltas/gestionadas)
                 cat = pub.categoria.nombre
                 d["categorias"][cat] = d["categorias"].get(cat, 0) + 1
+                if pub.prioridad == 'alta': d["alta_prioridad_resueltas"] += 1
                 
-                if pub.prioridad == 'alta':
-                    d["alta_prioridad_resueltas"] += 1
-                
-                # Analizar respuestas (fechas y puntuación)
                 respuestas = list(pub.respuestamunicipal_set.all())
                 if respuestas:
-                    # Ordenar para obtener la última y calcular tiempos
                     respuestas.sort(key=lambda r: r.fecha, reverse=True)
                     ultima = respuestas[0]
-                    
-                    # Guardar fecha más reciente global de la junta
                     if d["ultima_resolucion"] is None or ultima.fecha > d["ultima_resolucion"]:
                         d["ultima_resolucion"] = ultima.fecha
-                    
-                    # Tiempo resolución
                     dias = (ultima.fecha.date() - pub.fecha_publicacion.date()).days
-                    if dias >= 0:
-                        d["dias_resolucion_sum"] += dias
-                    
-                    # Puntuación (Satisfacción vecinal)
+                    if dias >= 0: d["dias_resolucion_sum"] += dias
                     if ultima.puntuacion > 0:
                         d["suma_puntuacion"] += ultima.puntuacion
                         d["count_puntuacion"] += 1
 
-        # Formatear salida
         resultados = []
         for j_id, d in juntas_data.items():
-            if d["total"] == 0:
-                continue
-            
+            if d["total"] == 0: continue
             eficiencia = (d["resueltas"] / d["total"]) * 100
-            intensidad_frio = eficiencia / 100 # 0 a 1
-            
-            promedio_calif = 0
-            if d["count_puntuacion"] > 0:
-                promedio_calif = d["suma_puntuacion"] / d["count_puntuacion"]
-                
-            tiempo_prom = 0
-            if d["resueltas"] > 0:
-                tiempo_prom = d["dias_resolucion_sum"] // d["resueltas"]
+            intensidad_frio = eficiencia / 100
+            promedio_calif = d["suma_puntuacion"] / d["count_puntuacion"] if d["count_puntuacion"] > 0 else 0
+            tiempo_prom = d["dias_resolucion_sum"] // d["resueltas"] if d["resueltas"] > 0 else 0
 
             item = {
                 "Junta_Vecinal": {
@@ -532,7 +313,7 @@ class StatisticsService:
                     "total_resueltas": d["resueltas"],
                     "eficiencia": round(eficiencia, 2),
                     "intensidad_frio": round(intensidad_frio, 2),
-                    "calificacion_promedio": round(promedio_calif, 1), # Dato clave recuperado
+                    "calificacion_promedio": round(promedio_calif, 1),
                     "total_valoraciones": d["count_puntuacion"],
                     "casos_alta_prioridad_resueltos": d["alta_prioridad_resueltas"]
                 },
@@ -546,69 +327,138 @@ class StatisticsService:
         return resultados
 
     @staticmethod
+    def get_analisis_eficiencia_juntas(queryset_filtro=None):
+        """
+        Lógica para calcular la junta más eficiente considerando Plazo Legal (20 días hábiles).
+        Esta es la función que faltaba y causaba el AttributeError.
+        """
+        qs = queryset_filtro if queryset_filtro is not None else Publicacion.objects.all()
+        qs = qs.select_related('junta_vecinal').prefetch_related('respuestamunicipal_set')
+
+        juntas_data = {}
+        DIAS_HABILES_LIMITE = 20
+        
+        for pub in qs:
+            junta = pub.junta_vecinal
+            if not junta: continue
+            
+            if junta.id not in juntas_data:
+                juntas_data[junta.id] = {
+                    "junta": junta, "total": 0, "resueltas_en_plazo": 0,
+                    "dias_resolucion_acum": 0, "total_resueltas": 0
+                }
+            d = juntas_data[junta.id]
+            d["total"] += 1
+
+            # Si no es pendiente
+            if pub.situacion_id != 4 and pub.situacion is not None:
+                d["total_resueltas"] += 1
+                respuestas = list(pub.respuestamunicipal_set.all())
+                if respuestas:
+                    respuesta = sorted(respuestas, key=lambda x: x.fecha, reverse=True)[0]
+                    try:
+                        rango = pd.bdate_range(start=pub.fecha_publicacion.date(), end=respuesta.fecha.date())
+                        if (len(rango) - 1) <= DIAS_HABILES_LIMITE:
+                            d["resueltas_en_plazo"] += 1
+                        
+                        dias_nat = (respuesta.fecha.date() - pub.fecha_publicacion.date()).days
+                        if dias_nat >= 0: d["dias_resolucion_acum"] += dias_nat
+                    except Exception: pass
+
+        resultados = []
+        for j_id, d in juntas_data.items():
+            total = d["total"]
+            if total == 0: continue
+
+            factor_volumen = min(total / 20, 1) * 100
+            # Eficiencia real: Cumplimiento legal sobre el total
+            porcentaje_cumplimiento = (d["resueltas_en_plazo"] / total) * 100
+            indice_eficiencia = (factor_volumen * 0.5) + (porcentaje_cumplimiento * 0.5)
+            
+            tiempo_prom = d["dias_resolucion_acum"] // d["total_resueltas"] if d["total_resueltas"] > 0 else 0
+
+            resultados.append({
+                "junta": {
+                    "id": d["junta"].id,
+                    "nombre": d["junta"].nombre_junta,
+                    "latitud": d["junta"].latitud,
+                    "longitud": d["junta"].longitud,
+                },
+                "metricas": {
+                    "total_publicaciones": total,
+                    "publicaciones_resueltas": d["total_resueltas"],
+                    "resueltas_en_plazo_legal": d["resueltas_en_plazo"],
+                    "tiempo_promedio_resolucion": tiempo_prom,
+                    "porcentaje_resueltas": round((d["total_resueltas"]/total*100), 2),
+                    "factor_cumplimiento": round(porcentaje_cumplimiento, 2),
+                    "indice_eficiencia": round(indice_eficiencia, 2),
+                }
+            })
+            
+        resultados.sort(key=lambda x: x["metricas"]["indice_eficiencia"], reverse=True)
+        return resultados
+
+    @staticmethod
+    def get_estadisticas_eficiencia_completa(request_filters=None):
+        # Usamos el método que acabamos de restaurar
+        ranking = StatisticsService.get_analisis_eficiencia_juntas(request_filters)
+        
+        return {
+            "total_juntas_analizadas": len(ranking),
+            "junta_mas_eficiente": ranking[0] if ranking else None,
+            "top_5_eficientes": ranking[:5],
+             "criterios_calculo": {
+                "factor_volumen": "50% del índice",
+                "factor_cumplimiento": "50% del índice (Plazo legal 20 días)",
+            },
+        }
+
+    # -------------------------------------------------------
+    # MÉTODOS SIMPLES
+    # -------------------------------------------------------
+
+    @staticmethod
     def get_estadisticas_departamentos():
         departamentos = DepartamentoMunicipal.objects.annotate(
-            total_funcionarios=Count(
-                "usuariodepartamento", filter=Q(usuariodepartamento__estado="activo")
-            ),
+            total_funcionarios=Count("usuariodepartamento", filter=Q(usuariodepartamento__estado="activo")),
             total_publicaciones=Count("publicacion"),
         ).select_related("jefe_departamento")
-
         stats = []
         for depto in departamentos:
-            stats.append(
-                {
-                    "departamento": depto.nombre,
-                    "total_funcionarios": depto.total_funcionarios,
-                    "jefe_departamento": (
-                        depto.jefe_departamento.nombre
-                        if depto.jefe_departamento
-                        else None
-                    ),
-                    "estado": depto.estado,
-                    "publicaciones_asignadas": depto.total_publicaciones,
-                }
-            )
+            stats.append({
+                "departamento": depto.nombre,
+                "total_funcionarios": depto.total_funcionarios,
+                "jefe_departamento": depto.jefe_departamento.nombre if depto.jefe_departamento else None,
+                "estado": depto.estado,
+                "publicaciones_asignadas": depto.total_publicaciones,
+            })
         return stats
-
+    
     @staticmethod
     def get_estadisticas_kanban(departamento_id=None):
         tableros_query = Tablero.objects.all()
         if departamento_id:
             tableros_query = tableros_query.filter(departamento_id=departamento_id)
-
         tableros = tableros_query.annotate(
             total_columnas=Count("columna", distinct=True),
             total_tareas=Count("columna__tarea", distinct=True),
-            tareas_vencidas=Count(
-                "columna__tarea",
-                filter=Q(columna__tarea__fecha_limite__lt=timezone.now()),
-                distinct=True,
-            ),
+            tareas_vencidas=Count("columna__tarea", filter=Q(columna__tarea__fecha_limite__lt=timezone.now()), distinct=True),
         ).select_related("departamento")
-
         stats = []
         for tablero in tableros:
-            stats.append(
-                {
-                    "tablero": tablero.titulo,
-                    "departamento": tablero.departamento.nombre,
-                    "total_columnas": tablero.total_columnas,
-                    "total_tareas": tablero.total_tareas,
-                    "tareas_vencidas": tablero.tareas_vencidas,
-                }
-            )
+            stats.append({
+                "tablero": tablero.titulo,
+                "departamento": tablero.departamento.nombre,
+                "total_columnas": tablero.total_columnas,
+                "total_tareas": tablero.total_tareas,
+                "tareas_vencidas": tablero.tareas_vencidas,
+            })
         return stats
 
     @staticmethod
     def get_estadisticas_respuestas():
         qs = RespuestaMunicipal.objects.exclude(puntuacion=0)
-
-        # Si no hay respuestas, retornamos early
-        if not qs.exists():
-            return None
-
-        # 1. Calcular todo en UNA sola consulta a la BD
+        if not qs.exists(): return None
         aggregates = qs.aggregate(
             promedio=Avg("puntuacion"),
             total=Count("id"),
@@ -617,64 +467,30 @@ class StatisticsService:
             estrella_3=Count("id", filter=Q(puntuacion=3)),
             estrella_4=Count("id", filter=Q(puntuacion=4)),
             estrella_5=Count("id", filter=Q(puntuacion=5)),
-            con_evidencia=Count(
-                "id", filter=Q(evidencias__isnull=False), distinct=True
-            ),
+            con_evidencia=Count("id", filter=Q(evidencias__isnull=False), distinct=True),
         )
-
         total = aggregates["total"]
-
-        # Construir la respuesta con los datos ya calculados
-        distribucion = {
-            f"{i}_estrella": aggregates[f"estrella_{i}"] for i in range(1, 6)
-        }
-
+        distribucion = {f"{i}_estrella": aggregates[f"estrella_{i}"] for i in range(1, 6)}
         return {
             "total_respuestas_puntuadas": total,
             "puntuacion_promedio": round(aggregates["promedio"] or 0, 2),
             "distribucion_puntuaciones": distribucion,
             "respuestas_con_evidencia": aggregates["con_evidencia"],
-            "porcentaje_con_evidencia": (
-                round((aggregates["con_evidencia"] / total * 100), 2)
-                if total > 0
-                else 0
-            ),
+            "porcentaje_con_evidencia": (round((aggregates["con_evidencia"] / total * 100), 2) if total > 0 else 0),
         }
 
     @staticmethod
     def get_estadisticas_gestion_datos():
-        juntas_vecinales = JuntaVecinal.objects.all()
-        categorias = Categoria.objects.all()
-        departamentos = DepartamentoMunicipal.objects.all()
-
         return {
-            "juntasVecinales": {
-                "total": juntas_vecinales.count(),
-                "habilitados": juntas_vecinales.filter(estado="habilitado").count(),
-                "pendientes": juntas_vecinales.filter(estado="pendiente").count(),
-                "deshabilitados": juntas_vecinales.filter(
-                    estado="deshabilitado"
-                ).count(),
-            },
-            "categorias": {
-                "total": categorias.count(),
-                "habilitados": categorias.filter(estado="habilitado").count(),
-                "pendientes": categorias.filter(estado="pendiente").count(),
-                "deshabilitados": categorias.filter(estado="deshabilitado").count(),
-            },
-            "departamentos": {
-                "total": departamentos.count(),
-                "habilitados": departamentos.filter(estado="habilitado").count(),
-                "pendientes": departamentos.filter(estado="pendiente").count(),
-                "deshabilitados": departamentos.filter(estado="deshabilitado").count(),
-            },
+            "juntasVecinales": {"total": JuntaVecinal.objects.count(), "habilitados": JuntaVecinal.objects.filter(estado="habilitado").count(), "pendientes": JuntaVecinal.objects.filter(estado="pendiente").count(), "deshabilitados": JuntaVecinal.objects.filter(estado="deshabilitado").count()},
+            "categorias": {"total": Categoria.objects.count(), "habilitados": Categoria.objects.filter(estado="habilitado").count(), "pendientes": Categoria.objects.filter(estado="pendiente").count(), "deshabilitados": Categoria.objects.filter(estado="deshabilitado").count()},
+            "departamentos": {"total": DepartamentoMunicipal.objects.count(), "habilitados": DepartamentoMunicipal.objects.filter(estado="habilitado").count(), "pendientes": DepartamentoMunicipal.objects.filter(estado="pendiente").count(), "deshabilitados": DepartamentoMunicipal.objects.filter(estado="deshabilitado").count()},
         }
 
     @staticmethod
     def get_estadisticas_historial_modificaciones(usuario):
         es_jefe = usuario.tipo_usuario == "jefe_departamento"
         departamento = usuario.get_departamento_asignado()
-
         modificaciones_qs = HistorialModificaciones.objects.select_related("autor")
         miembros_equipo_ids = None
 
@@ -682,9 +498,7 @@ class StatisticsService:
             miembros_equipo_ids = Usuario.objects.filter(
                 asignaciones_departamento__departamento=departamento, esta_activo=True
             ).values_list("id", flat=True)
-            modificaciones_qs = modificaciones_qs.filter(
-                autor_id__in=miembros_equipo_ids
-            )
+            modificaciones_qs = modificaciones_qs.filter(autor_id__in=miembros_equipo_ids)
         else:
             modificaciones_qs = modificaciones_qs.filter(autor=usuario)
 
@@ -705,31 +519,19 @@ class StatisticsService:
 
         if es_jefe:
             if not departamento:
-                raise ValueError(
-                    "El Jefe de departamento no tiene un departamento asignado."
-                )
+                raise ValueError("El Jefe de departamento no tiene un departamento asignado.")
 
             total_modificaciones = modificaciones_qs.count()
             hoy = timezone.now().date()
             modificaciones_hoy = modificaciones_qs.filter(fecha__date=hoy).count()
-
-            miembros_equipo_count = (
-                len(miembros_equipo_ids)
-                if miembros_equipo_ids is not None
-                else Usuario.objects.filter(id=usuario.id).count()
-            )
-
+            miembros_equipo_count = len(miembros_equipo_ids) if miembros_equipo_ids is not None else 1
+            
             miembro_mas_activo_data = modificaciones_por_usuario_qs.first()
             miembro_mas_activo = None
             if miembro_mas_activo_data:
                 miembro_mas_activo = {
-                    "miembro": {
-                        "id": miembro_mas_activo_data.get("autor_id"),
-                        "nombre": miembro_mas_activo_data.get("autor__nombre"),
-                    },
-                    "modificaciones": miembro_mas_activo_data.get(
-                        "total_modificaciones", 0
-                    ),
+                    "miembro": {"id": miembro_mas_activo_data.get("autor_id"), "nombre": miembro_mas_activo_data.get("autor__nombre")},
+                    "modificaciones": miembro_mas_activo_data.get("total_modificaciones", 0),
                 }
 
             return {
@@ -743,7 +545,6 @@ class StatisticsService:
             total_modificaciones = modificaciones_qs.count()
             mis_modificaciones = modificaciones_qs.filter(autor=usuario).count()
             modificaciones_equipo = modificaciones_qs.exclude(autor=usuario).count()
-
             return {
                 "totalModificaciones": total_modificaciones,
                 "misModificaciones": mis_modificaciones,

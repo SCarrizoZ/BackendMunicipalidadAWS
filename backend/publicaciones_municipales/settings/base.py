@@ -160,3 +160,6 @@ SPECTACULAR_SETTINGS = {
 }
 
 AUTH_USER_MODEL = "listado_publicaciones.Usuario"
+
+# Límites de Negocio
+PLAZO_LEGAL_DIAS = 20

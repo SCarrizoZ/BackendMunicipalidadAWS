@@ -1,78 +1,9 @@
 from rest_framework import serializers
-from django.db.models import Q
-import math
-from ..models import (
-    Usuario,
-    Categoria,
-    DepartamentoMunicipal,
-    UsuarioDepartamento,
-    Evidencia,
-    EvidenciaRespuesta,
-    JuntaVecinal,
-    Publicacion,
-    RespuestaMunicipal,
-    SituacionPublicacion,
-    AnuncioMunicipal,
-    ImagenAnuncio,
-    HistorialModificaciones,
-    Auditoria,
-    Columna,
-    Tarea,
-    Comentario,
-    Tablero,
-    DispositivoNotificacion,
-)
-import cloudinary
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-
-
-def calcular_distancia_haversine(lat1, lon1, lat2, lon2):
-    """
-    Calcula la distancia entre dos puntos geográficos usando la fórmula de Haversine.
-    Retorna la distancia en kilómetros.
-    """
-    # Convertir grados a radianes
-    lat1, lon1, lat2, lon2 = map(
-        math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)]
-    )
-
-    # Fórmula de Haversine
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    )
-    c = 2 * math.asin(math.sqrt(a))
-
-    # Radio de la Tierra en kilómetros
-    r = 6371
-    return c * r
-
-
-def encontrar_junta_vecinal_mas_cercana(latitud, longitud):
-    """
-    Encuentra la junta vecinal más cercana a las coordenadas dadas.
-    Retorna la instancia de JuntaVecinal más cercana.
-    """
-    juntas_vecinales = JuntaVecinal.objects.filter(estado="habilitado")
-
-    if not juntas_vecinales.exists():
-        return None
-
-    distancia_minima = float("inf")
-    junta_mas_cercana = None
-
-    for junta in juntas_vecinales:
-        distancia = calcular_distancia_haversine(
-            latitud, longitud, junta.latitud, junta.longitud
-        )
-
-        if distancia < distancia_minima:
-            distancia_minima = distancia
-            junta_mas_cercana = junta
-
-    return junta_mas_cercana
+from ..models import *
+from ..services.geo_service import GeoService
+from ..services.media_service import MediaService
+from ..utils.validators import validar_rut, validar_email_unico
 
 
 # Serializer para Usuario
@@ -148,56 +79,11 @@ class UsuarioSerializer(serializers.ModelSerializer):
         return "No aplica"
 
     def validate_rut(self, value):
-        """Validación personalizada para RUT"""
-        if not value:
-            raise serializers.ValidationError("El RUT es obligatorio")
-
-        # Normalizar RUT (remover puntos y guiones)
-        rut_normalizado = value.replace(".", "").replace("-", "")
-
-        # Validar formato básico (8-9 dígitos + dígito verificador)
-        if len(rut_normalizado) < 8 or len(rut_normalizado) > 9:
-            raise serializers.ValidationError(
-                "El RUT debe tener entre 8 y 9 caracteres"
-            )
-
-        # Verificar si ya existe (solo en creación)
-        if not self.instance:  # Solo validar en creación, no en actualización
-            # Buscar en múltiples formatos de RUT para detectar duplicados
-            if Usuario.objects.filter(
-                Q(rut=rut_normalizado)
-                | Q(rut=value)
-                | Q(
-                    rut__in=[
-                        value,  # Formato original
-                        rut_normalizado,  # Sin puntos ni guiones
-                        (
-                            f"{rut_normalizado[:-1]}-{rut_normalizado[-1]}"
-                            if len(rut_normalizado) >= 2
-                            else rut_normalizado
-                        ),  # Con guión
-                    ]
-                )
-            ).exists():
-                raise serializers.ValidationError("Ya existe un usuario con este RUT")
-
-        # Reformatear el RUT al formato XXXXXXXX-Y antes de guardarlo
-        cuerpo = rut_normalizado[:-1]
-        dv = rut_normalizado[-1]
-        rut_con_guion = f"{cuerpo}-{dv}"
-
-        return rut_con_guion  # <--- Devolvemos el RUT con guion
+        return validar_rut(value, check_exists=not self.instance)
 
     def validate_email(self, value):
-        """Validación personalizada para email"""
-        if not value:
-            raise serializers.ValidationError("El email es obligatorio")
-
-        # Verificar si ya existe (solo en creación)
-        if not self.instance:  # Solo validar en creación, no en actualización
-            if Usuario.objects.filter(email__iexact=value).exists():
-                raise serializers.ValidationError("Ya existe un usuario con este email")
-
+        if not self.instance:  # Solo al crear
+            return validar_email_unico(value)
         return value.lower()
 
     def validate(self, data):
@@ -278,6 +164,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data["tipo_usuario"] = self.user.tipo_usuario
         data["tipo_usuario_display"] = self.user.get_tipo_usuario_display()
         data["ultimo_acceso"] = self.user.ultimo_acceso
+        data["departamento_asignado"] = self.user.get_departamento_asignado() or "No aplica"
+        data["nombre"] = self.user.nombre
+        data["rut"] = self.user.rut
+        data["email"] = self.user.email or "No registrado"
+        data["numero_telefonico_movil"] = self.user.numero_telefonico_movil or "No registrado"
+        data["fecha_registro"] = self.user.fecha_registro
+        data["esta_activo"] = self.user.esta_activo
 
         return data
 
@@ -449,19 +342,20 @@ class EvidenciaSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        # Validar y procesar publicacion_id
+        # 1. Extraer archivo
+        archivo = validated_data.pop("archivo")
+        
+        # 2. USAR EL SERVICIO (Limpio y reutilizable)
+        ruta_relativa = MediaService.upload_image(archivo, folder="evidencias_publicaciones")
+        
+        # 3. Asignar la ruta procesada
+        validated_data["archivo"] = ruta_relativa
+        
+        # 4. Procesar ID de publicación (tu lógica original)
         publicacion = validated_data.get("publicacion_id")
         if isinstance(publicacion, Publicacion):
-            validated_data["publicacion_id"] = (
-                publicacion.id
-            )  # Convertir a ID si es un objeto
-        # Procesar el archivo con Cloudinary
-        archivo = validated_data.pop("archivo")
-        upload_data = cloudinary.uploader.upload(archivo)
-        url_completa = upload_data["url"]
-        ruta_relativa = url_completa.split("de06451wd/")[1]
-        validated_data["archivo"] = ruta_relativa
-        # Crear y devolver la instancia de Evidencia
+            validated_data["publicacion_id"] = publicacion.id
+            
         return Evidencia.objects.create(**validated_data)
 
 
@@ -539,6 +433,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
             "junta_vecinal_info",
             "distancia_a_junta_km",
         ]
+        read_only_fields = ["departamento", "fecha_publicacion", "codigo", "situacion"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -579,7 +474,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
 
             # Auto-detección para creación
             if auto_detectar and not data.get("junta_vecinal"):
-                junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(
+                junta_mas_cercana = GeoService.encontrar_junta_vecinal_mas_cercana(
                     latitud, longitud
                 )
                 if junta_mas_cercana:
@@ -611,7 +506,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
                 )
 
             # Auto-detección para actualización
-            junta_mas_cercana = encontrar_junta_vecinal_mas_cercana(latitud, longitud)
+            junta_mas_cercana = GeoService.encontrar_junta_vecinal_mas_cercana(latitud, longitud)
             if junta_mas_cercana:
                 data["junta_vecinal"] = junta_mas_cercana
             else:
@@ -628,12 +523,17 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         """Crear publicación con auditoría implícita del auto-detect"""
+        # Asignar departamento basado en la categoría
+        categoria = validated_data.get('categoria')
+        if categoria:
+            validated_data['departamento'] = categoria.departamento
+
         instance = super().create(validated_data)
 
         # Calcular y almacenar distancia para la respuesta
         if instance.junta_vecinal:
             try:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     instance.latitud,
                     instance.longitud,
                     instance.junta_vecinal.latitud,
@@ -652,7 +552,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         # Calcular y almacenar distancia para la respuesta
         if updated_instance.junta_vecinal:
             try:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     updated_instance.latitud,
                     updated_instance.longitud,
                     updated_instance.junta_vecinal.latitud,
@@ -687,7 +587,7 @@ class PublicacionCreateUpdateSerializer(serializers.ModelSerializer):
         # Calcular si no existe
         if obj.junta_vecinal and obj.latitud and obj.longitud:
             try:
-                distancia = calcular_distancia_haversine(
+                distancia = GeoService.calcular_distancia_haversine(
                     obj.latitud,
                     obj.longitud,
                     obj.junta_vecinal.latitud,
@@ -734,9 +634,10 @@ class ImagenAnuncioSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         archivo = validated_data.pop("imagen")
-        upload_data = cloudinary.uploader.upload(archivo)
-        url_completa = upload_data["url"]
-        ruta_relativa = url_completa.split("de06451wd/")[1]
+        
+        # Reutilizamos el mismo servicio para otra entidad
+        ruta_relativa = MediaService.upload_image(archivo, folder="anuncios_municipales")
+        
         validated_data["imagen"] = ruta_relativa
         return ImagenAnuncio.objects.create(**validated_data)
 
@@ -800,8 +701,8 @@ class EvidenciaRespuestaSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         archivo = validated_data.pop("archivo")
-        upload_data = cloudinary.uploader.upload(archivo)
-        validated_data["archivo"] = upload_data["url"]
+        ruta_relativa = MediaService.upload_image(archivo, folder="evidencias_respuestas")
+        validated_data["archivo"] = ruta_relativa
         return EvidenciaRespuesta.objects.create(**validated_data)
 
 

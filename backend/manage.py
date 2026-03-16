@@ -8,6 +8,16 @@ from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
 
+GTK_FOLDER = r"D:\Programas\GTK3\ucrt64\bin"
+
+if os.name == "nt" and os.path.exists(GTK_FOLDER):
+    try:
+        os.add_dll_directory(GTK_FOLDER)
+    except Exception as e:
+        print(f"Error al agregar DLLs de GTK: {e}")
+    # Por compatibilidad con versiones anteriores o sistemas mixtos, también agregamos al PATH
+    os.environ["PATH"] = GTK_FOLDER + ";" + os.environ["PATH"]
+
 def main():
     """Run administrative tasks."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", os.getenv("DJANGO_SETTINGS_MODULE"))
